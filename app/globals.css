@@ -1,26 +1,75 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --green: #16704A;
+  --green-dark: #0F5536;
+  --green-50: #E6F0EA;
+  --cream: #FFFDF7;
+  --surface: #F6F2E8;
+  --surface-2: #F1ECDF;
+  --line: #E5DECC;
+  --ink: #1C1A15;
+  --ink-2: #5C564A;
+  --ink-3: #8E8676;
+  --coral: #E8623D;
+  --coral-50: #FBEAE3;
+  --gold: #A87A1E;
+  --t-who: #1B5E3F;
+  --t-value: #C0573B;
+  --t-acquire: #2F4B7C;
+  --t-money: #A87A1E;
+  --t-build: #6B3F69;
+  --t-scale: #2C6E6A;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Kanit', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--surface);
+  color: var(--ink);
+  min-height: 100vh;
 }
+
+.mono { font-family: 'IBM Plex Mono', monospace; }
+
+.tt-scroll::-webkit-scrollbar { width: 5px; }
+.tt-scroll::-webkit-scrollbar-track { background: transparent; }
+.tt-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; }
+
+@keyframes ttFade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes ttPop  { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+@keyframes ttRise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes ttSpin { to { transform: rotate(360deg); } }
+@keyframes ttPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .6; transform: scale(1.3); } }
+
+.anim-fade { animation: ttFade .4s cubic-bezier(.22,.61,.36,1); }
+.anim-pop  { animation: ttPop  .2s ease; }
+.anim-rise { animation: ttRise .4s cubic-bezier(.22,.61,.36,1); }
+.pulse-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #19c25a; animation: ttPulse 1.8s infinite; }
+
+.pbar { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.pbar i { display: block; height: 100%; background: var(--green); border-radius: 99px; transition: width .6s cubic-bezier(.22,.61,.36,1); }
+
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; }
+
+.card { background: var(--cream); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 1px 2px rgba(28,26,21,.06); }
+.card-pad { padding: 20px; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 11px; border: none; font-family: 'Kanit', sans-serif; font-size: 15px; font-weight: 600; cursor: pointer; transition: background .15s, transform .15s; }
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: var(--green); color: #fff; }
+.btn-primary:hover { background: var(--green-dark); }
+.btn-ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--line); }
+.btn-ghost:hover { background: var(--surface-2); }
+.btn-sm { height: 34px; padding: 0 14px; font-size: 13px; }
+.btn-coral { background: var(--coral); color: #fff; }
+.btn-coral:hover { background: #cf4f2e; }
+
+.nav-btn { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px; border-radius: 10px; border: none; background: transparent; color: var(--ink-2); cursor: pointer; font-family: 'Kanit', sans-serif; font-size: 14px; font-weight: 500; width: 100%; text-align: left; transition: background .1s; white-space: nowrap; overflow: hidden; }
+.nav-btn:hover { background: var(--surface-2); }
+.nav-btn.active { background: var(--green-50); color: var(--green); font-weight: 600; }
+
+.tt-input { width: 100%; padding: 10px 13px; border: 1.5px solid var(--line); border-radius: 10px; font-family: 'Kanit', sans-serif; font-size: 15px; color: var(--ink); background: var(--cream); transition: border-color .15s; outline: none; }
+.tt-input:focus { border-color: var(--green); }
+.tt-textarea { resize: vertical; min-height: 90px; }
