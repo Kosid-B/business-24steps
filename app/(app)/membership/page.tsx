@@ -2,9 +2,10 @@
 
 export const runtime = 'edge'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useApp } from '@/lib/context/AppContext'
 import { PLANS } from '@/lib/data/content'
+import { createClient } from '@/lib/supabase/client'
 
 const PLAN_COLORS: Record<string, string> = {
   free: '#8E8676',
@@ -12,17 +13,126 @@ const PLAN_COLORS: Record<string, string> = {
   yearly: '#A87A1E',
 }
 
+const OMISE_PUBLIC_KEY = process.env.NEXT_PUBLIC_OMISE_PUBLIC_KEY ?? ''
+const EDGE_FN = process.env.NEXT_PUBLIC_SUPABASE_URL + '/functions/v1/create-charge'
+
+declare global {
+  interface Window {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    OmiseCard: any
+  }
+}
+
+type PaymentState = 'idle' | 'loading' | 'qr' | 'success' | 'error'
+
 export default function MembershipPage() {
-  const { state, upgradePlan } = useApp()
-  const [upgrading, setUpgrading] = useState('')
+  const { state, upgradePlan, toast } = useApp()
+  const [modal, setModal] = useState<{ plan: typeof PLANS[0] } | null>(null)
+  const [payState, setPayState] = useState<PaymentState>('idle')
+  const [qrUri, setQrUri] = useState('')
+  const [errorMsg, setErrorMsg] = useState('')
+  const [tab, setTab] = useState<'promptpay' | 'card'>('promptpay')
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const supabase = createClient()
 
   const currentPlan = state.plan || 'free'
 
-  async function handleUpgrade(planId: string) {
-    if (planId === currentPlan) return
-    setUpgrading(planId)
-    await upgradePlan(planId as 'free' | 'monthly' | 'yearly')
-    setUpgrading('')
+  // โหลด Omise.js เมื่อเปิด modal
+  useEffect(() => {
+    if (!modal || tab !== 'card') return
+    if (window.OmiseCard) return
+    const s = document.createElement('script')
+    s.src = 'https://cdn.omise.co/omise.js'
+    s.async = true
+    document.head.appendChild(s)
+  }, [modal, tab])
+
+  // poll สถานะ PromptPay ทุก 5 วินาที
+  useEffect(() => {
+    if (payState !== 'qr' || !modal) return
+    pollRef.current = setInterval(async () => {
+      const { data } = await supabase
+        .from('billings')
+        .select('status,plan')
+        .eq('member_id', state.account?.email ?? '')
+        .eq('plan', modal.plan.id)
+        .eq('status', 'paid')
+        .maybeSingle()
+      if (data) {
+        clearInterval(pollRef.current!)
+        await upgradePlan(data.plan as 'monthly' | 'yearly')
+        setPayState('success')
+      }
+    }, 5000)
+    return () => clearInterval(pollRef.current!)
+  }, [payState, modal]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function closeModal() {
+    clearInterval(pollRef.current!)
+    setModal(null)
+    setPayState('idle')
+    setQrUri('')
+    setErrorMsg('')
+    setTab('promptpay')
+  }
+
+  async function getUserId() {
+    const { data: { user } } = await supabase.auth.getUser()
+    return user
+  }
+
+  async function payPromptPay(plan: typeof PLANS[0]) {
+    setPayState('loading')
+    setErrorMsg('')
+    const user = await getUserId()
+    if (!user) { setPayState('error'); setErrorMsg('กรุณาเข้าสู่ระบบ'); return }
+    try {
+      const res = await fetch(EDGE_FN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
+        body: JSON.stringify({ memberId: user.id, memberEmail: user.email, memberName: state.account?.name, plan: plan.id, sourceType: 'promptpay' }),
+      })
+      const json = await res.json()
+      if (!res.ok || json.error) throw new Error(json.error || 'ไม่สามารถสร้าง QR ได้')
+      setQrUri(json.authorizeUri)
+      setPayState('qr')
+    } catch (e) {
+      setPayState('error')
+      setErrorMsg(String(e).replace('Error: ', ''))
+    }
+  }
+
+  async function payCard(plan: typeof PLANS[0]) {
+    if (!window.OmiseCard) { toast('กำลังโหลด Omise.js...'); return }
+    if (!OMISE_PUBLIC_KEY) { toast('ยังไม่ได้ตั้งค่า OMISE_PUBLIC_KEY'); return }
+    window.OmiseCard.configure({ publicKey: OMISE_PUBLIC_KEY })
+    window.OmiseCard.open({
+      amount: plan.price * 100,
+      currency: 'THB',
+      frameLabel: 'B. Training Consultant',
+      submitLabel: `ชำระ ฿${plan.price.toLocaleString()}`,
+      onCreateTokenSuccess: async (token: string) => {
+        setPayState('loading')
+        setErrorMsg('')
+        const user = await getUserId()
+        if (!user) { setPayState('error'); setErrorMsg('กรุณาเข้าสู่ระบบ'); return }
+        try {
+          const res = await fetch(EDGE_FN, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
+            body: JSON.stringify({ memberId: user.id, memberEmail: user.email, memberName: state.account?.name, plan: plan.id, token, sourceType: 'card' }),
+          })
+          const json = await res.json()
+          if (!res.ok || json.error) throw new Error(json.error || 'ตัดบัตรไม่สำเร็จ')
+          await upgradePlan(plan.id as 'monthly' | 'yearly')
+          setPayState('success')
+        } catch (e) {
+          setPayState('error')
+          setErrorMsg(String(e).replace('Error: ', ''))
+        }
+      },
+      onFormClosed: () => setPayState('idle'),
+    })
   }
 
   function priceDisplay(plan: typeof PLANS[0]) {
@@ -80,18 +190,18 @@ export default function MembershipPage() {
                 ))}
               </div>
               <button
-                onClick={() => handleUpgrade(plan.id)}
-                disabled={isCurrent || upgrading === plan.id}
+                onClick={() => plan.id !== 'free' && !isCurrent ? setModal({ plan }) : undefined}
+                disabled={isCurrent || plan.id === 'free'}
                 className="btn"
                 style={{
-                  background: isCurrent ? 'transparent' : color,
-                  color: isCurrent ? color : '#fff',
-                  border: isCurrent ? `1.5px solid ${color}` : 'none',
-                  cursor: isCurrent ? 'default' : 'pointer',
+                  background: isCurrent || plan.id === 'free' ? 'transparent' : color,
+                  color: isCurrent || plan.id === 'free' ? color : '#fff',
+                  border: isCurrent || plan.id === 'free' ? `1.5px solid ${color}` : 'none',
+                  cursor: isCurrent || plan.id === 'free' ? 'default' : 'pointer',
                   fontWeight: 700, fontSize: 15,
                 }}
               >
-                {upgrading === plan.id ? 'กำลังอัปเกรด…' : isCurrent ? 'แผนปัจจุบัน' : plan.cta}
+                {isCurrent ? 'แผนปัจจุบัน' : plan.cta}
               </button>
             </div>
           )
@@ -152,6 +262,138 @@ export default function MembershipPage() {
           </div>
         ))}
       </div>
+
+      {/* ── Payment Modal ─────────────────────────────────────── */}
+      {modal && (
+        <div
+          onClick={(e) => e.target === e.currentTarget && closeModal()}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+        >
+          <div style={{ background: '#FFFDF7', borderRadius: 24, padding: 28, width: '100%', maxWidth: 420, position: 'relative' }}>
+            {/* close */}
+            <button onClick={closeModal} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#8E8676', lineHeight: 1 }}>✕</button>
+
+            {/* success */}
+            {payState === 'success' && (
+              <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                <div style={{ fontSize: 52, marginBottom: 12 }}>🎉</div>
+                <div style={{ fontWeight: 700, fontSize: 20, color: '#1C1A15', marginBottom: 8 }}>ชำระเงินสำเร็จ!</div>
+                <div style={{ fontSize: 14, color: '#5C564A', marginBottom: 20 }}>เปิดใช้งานแผน{modal.plan.name}แล้ว — ตรวจสอบอีเมลสำหรับใบเสร็จ</div>
+                <button onClick={closeModal} className="btn" style={{ background: PLAN_COLORS[modal.plan.id], color: '#fff', border: 'none', fontWeight: 700, width: '100%' }}>
+                  เริ่มใช้งาน
+                </button>
+              </div>
+            )}
+
+            {/* main flow */}
+            {payState !== 'success' && (
+              <>
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.1em', color: '#8E8676', textTransform: 'uppercase', marginBottom: 4 }}>ชำระเงิน</div>
+                  <div style={{ fontWeight: 700, fontSize: 20, color: '#1C1A15' }}>แผน{modal.plan.name}</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: PLAN_COLORS[modal.plan.id], marginTop: 4 }}>
+                    ฿{modal.plan.price.toLocaleString()}
+                    <span style={{ fontSize: 13, fontWeight: 400, color: '#8E8676', marginLeft: 6 }}>{modal.plan.period}</span>
+                  </div>
+                </div>
+
+                {/* Tabs */}
+                {payState !== 'qr' && (
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+                    {(['promptpay', 'card'] as const).map(t => (
+                      <button
+                        key={t}
+                        onClick={() => setTab(t)}
+                        style={{
+                          flex: 1, padding: '9px 0', borderRadius: 12, fontWeight: 700, fontSize: 14,
+                          background: tab === t ? '#1C1A15' : 'transparent',
+                          color: tab === t ? '#fff' : '#5C564A',
+                          border: `1.5px solid ${tab === t ? '#1C1A15' : '#E5DECC'}`,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {t === 'promptpay' ? '📱 PromptPay' : '💳 บัตรเครดิต'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* PromptPay tab */}
+                {tab === 'promptpay' && payState !== 'qr' && (
+                  <div>
+                    <div style={{ background: '#F6F2E9', borderRadius: 14, padding: '14px 16px', marginBottom: 16, fontSize: 13.5, color: '#5C564A', lineHeight: 1.6 }}>
+                      <div style={{ fontWeight: 700, color: '#1C1A15', marginBottom: 4 }}>วิธีชำระ</div>
+                      1. กด &ldquo;สร้าง QR Code&rdquo;<br />
+                      2. เปิดแอปธนาคาร → สแกน QR<br />
+                      3. ยืนยันการชำระ — ระบบอัปเดตทันที
+                    </div>
+                    {payState === 'error' && (
+                      <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#B91C1C' }}>
+                        {errorMsg}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => payPromptPay(modal.plan)}
+                      disabled={payState === 'loading'}
+                      className="btn"
+                      style={{ background: PLAN_COLORS[modal.plan.id], color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, width: '100%', opacity: payState === 'loading' ? .6 : 1 }}
+                    >
+                      {payState === 'loading' ? 'กำลังสร้าง QR…' : 'สร้าง QR Code'}
+                    </button>
+                  </div>
+                )}
+
+                {/* QR Code */}
+                {tab === 'promptpay' && payState === 'qr' && qrUri && (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 13, color: '#5C564A', marginBottom: 14 }}>สแกน QR ด้วยแอปธนาคาร — รอยืนยันอัตโนมัติ</div>
+                    <div style={{ background: '#fff', borderRadius: 16, padding: 16, display: 'inline-block', border: '1px solid #E5DECC', marginBottom: 14 }}>
+                      <img src={qrUri} alt="PromptPay QR" width={200} height={200} style={{ display: 'block' }} />
+                    </div>
+                    <div style={{ fontSize: 12, color: '#8E8676', marginBottom: 16 }}>
+                      <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 99, background: '#F59E0B', marginRight: 6, verticalAlign: 'middle', animation: 'pulse 1.5s infinite' }} />
+                      รอการยืนยัน...
+                    </div>
+                    <button onClick={closeModal} style={{ background: 'none', border: 'none', color: '#8E8676', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>
+                      ยกเลิก
+                    </button>
+                  </div>
+                )}
+
+                {/* Card tab */}
+                {tab === 'card' && (
+                  <div>
+                    <div style={{ background: '#F6F2E9', borderRadius: 14, padding: '14px 16px', marginBottom: 16, fontSize: 13.5, color: '#5C564A', lineHeight: 1.6 }}>
+                      ชำระด้วยบัตรเครดิต/เดบิต Visa, Mastercard<br />
+                      <span style={{ fontSize: 12, color: '#8E8676' }}>ข้อมูลบัตรเข้ารหัสด้วย Omise — ปลอดภัย 100%</span>
+                    </div>
+                    {payState === 'error' && (
+                      <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#B91C1C' }}>
+                        {errorMsg}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => payCard(modal.plan)}
+                      disabled={payState === 'loading'}
+                      className="btn"
+                      style={{ background: PLAN_COLORS[modal.plan.id], color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, width: '100%', opacity: payState === 'loading' ? .6 : 1 }}
+                    >
+                      {payState === 'loading' ? 'กำลังประมวลผล…' : `ชำระ ฿${modal.plan.price.toLocaleString()} ด้วยบัตร`}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Security note */}
+            {payState !== 'success' && (
+              <div style={{ marginTop: 16, textAlign: 'center', fontSize: 11.5, color: '#C9BFA8' }}>
+                🔒 ชำระผ่าน Omise (Opn Payments) — PCI DSS Level 1
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
