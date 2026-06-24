@@ -14,6 +14,7 @@ const NAV = [
   { href: '/consult', label: 'ปรึกษา Live', icon: 'M4 5h16v11H9l-4 3.5V16H4ZM8 9h8M8 12h5' },
   { href: '/live', label: 'Live สด', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17ZM10 8.5l5 3.5-5 3.5Z' },
   { href: '/plg', label: 'กลยุทธ์เติบโต', icon: 'M3 17l5-5 4 4 8-9M16 7h5v5' },
+  { href: '/coach', label: 'โค้ชธุรกิจ AI', icon: 'M12 2a9 9 0 0 1 9 9c0 4-2.5 7.5-6 8.8V22l-3-2-3 2v-2.2C5.5 18.5 3 15 3 11a9 9 0 0 1 9-9ZM9 11h.01M12 11h.01M15 11h.01' },
 ]
 
 export default function Sidebar() {
