@@ -1,5 +1,7 @@
 'use client'
 
+export const runtime = 'edge'
+
 import Link from 'next/link'
 import { useApp } from '@/lib/context/AppContext'
 import { getProgress, getPhaseProgress, getXp, getRankTier } from '@/lib/game'

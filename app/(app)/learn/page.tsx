@@ -1,5 +1,7 @@
 'use client'
 
+export const runtime = 'edge'
+
 import { useState } from 'react'
 import { useApp } from '@/lib/context/AppContext'
 import { LESSONS, ARTICLES } from '@/lib/data/content'

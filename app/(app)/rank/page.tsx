@@ -1,5 +1,7 @@
 'use client'
 
+export const runtime = 'edge'
+
 import { useApp } from '@/lib/context/AppContext'
 import { getXp, getRankTier, getProgress, getPowerLevels, RANK_TIERS } from '@/lib/game'
 
