@@ -13,13 +13,13 @@ const PLAN_COLORS: Record<string, string> = {
   yearly: '#A87A1E',
 }
 
-const OMISE_PUBLIC_KEY = process.env.NEXT_PUBLIC_OMISE_PUBLIC_KEY ?? ''
+const GB_PUBLIC_KEY = process.env.NEXT_PUBLIC_GB_PUBLIC_KEY ?? ''
 const EDGE_FN = process.env.NEXT_PUBLIC_SUPABASE_URL + '/functions/v1/create-charge'
 
 declare global {
   interface Window {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    OmiseCard: any
+    GBPrimePay: any
   }
 }
 
@@ -29,33 +29,34 @@ export default function MembershipPage() {
   const { state, upgradePlan, toast } = useApp()
   const [modal, setModal] = useState<{ plan: typeof PLANS[0] } | null>(null)
   const [payState, setPayState] = useState<PaymentState>('idle')
-  const [qrUri, setQrUri] = useState('')
+  const [qrImage, setQrImage] = useState('')       // base64 PNG จาก GBPrimePay
+  const [referenceNo, setReferenceNo] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
   const [tab, setTab] = useState<'promptpay' | 'card'>('promptpay')
+  const [cardData, setCardData] = useState({ number: '', name: '', expMonth: '', expYear: '', cvv: '' })
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const supabase = createClient()
 
   const currentPlan = state.plan || 'free'
 
-  // โหลด Omise.js เมื่อเปิด modal
+  // โหลด GBPrimePay.js เมื่อเปิด tab บัตร
   useEffect(() => {
     if (!modal || tab !== 'card') return
-    if (window.OmiseCard) return
+    if (window.GBPrimePay) return
     const s = document.createElement('script')
-    s.src = 'https://cdn.omise.co/omise.js'
+    s.src = 'https://cdn.gbprimepay.com/js/gbprimepay.min.js'
     s.async = true
     document.head.appendChild(s)
   }, [modal, tab])
 
-  // poll สถานะ PromptPay ทุก 5 วินาที
+  // poll billing status ทุก 5 วินาที หลังสร้าง QR
   useEffect(() => {
-    if (payState !== 'qr' || !modal) return
+    if (payState !== 'qr' || !referenceNo) return
     pollRef.current = setInterval(async () => {
       const { data } = await supabase
         .from('billings')
         .select('status,plan')
-        .eq('member_id', state.account?.email ?? '')
-        .eq('plan', modal.plan.id)
+        .eq('charge_id', referenceNo)
         .eq('status', 'paid')
         .maybeSingle()
       if (data) {
@@ -65,20 +66,26 @@ export default function MembershipPage() {
       }
     }, 5000)
     return () => clearInterval(pollRef.current!)
-  }, [payState, modal]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [payState, referenceNo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function closeModal() {
     clearInterval(pollRef.current!)
     setModal(null)
     setPayState('idle')
-    setQrUri('')
+    setQrImage('')
+    setReferenceNo('')
     setErrorMsg('')
     setTab('promptpay')
+    setCardData({ number: '', name: '', expMonth: '', expYear: '', cvv: '' })
   }
 
   async function getUserId() {
     const { data: { user } } = await supabase.auth.getUser()
     return user
+  }
+
+  async function getAccessToken() {
+    return (await supabase.auth.getSession()).data.session?.access_token ?? ''
   }
 
   async function payPromptPay(plan: typeof PLANS[0]) {
@@ -89,12 +96,13 @@ export default function MembershipPage() {
     try {
       const res = await fetch(EDGE_FN, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getAccessToken()}` },
         body: JSON.stringify({ memberId: user.id, memberEmail: user.email, memberName: state.account?.name, plan: plan.id, sourceType: 'promptpay' }),
       })
       const json = await res.json()
       if (!res.ok || json.error) throw new Error(json.error || 'ไม่สามารถสร้าง QR ได้')
-      setQrUri(json.authorizeUri)
+      setQrImage(json.qrImage)        // base64 PNG
+      setReferenceNo(json.referenceNo)
       setPayState('qr')
     } catch (e) {
       setPayState('error')
@@ -103,24 +111,38 @@ export default function MembershipPage() {
   }
 
   async function payCard(plan: typeof PLANS[0]) {
-    if (!window.OmiseCard) { toast('กำลังโหลด Omise.js...'); return }
-    if (!OMISE_PUBLIC_KEY) { toast('ยังไม่ได้ตั้งค่า OMISE_PUBLIC_KEY'); return }
-    window.OmiseCard.configure({ publicKey: OMISE_PUBLIC_KEY })
-    window.OmiseCard.open({
-      amount: plan.price * 100,
-      currency: 'THB',
-      frameLabel: 'B. Training Consultant',
-      submitLabel: `ชำระ ฿${plan.price.toLocaleString()}`,
-      onCreateTokenSuccess: async (token: string) => {
-        setPayState('loading')
-        setErrorMsg('')
+    if (!GB_PUBLIC_KEY) { toast('ยังไม่ได้ตั้งค่า NEXT_PUBLIC_GB_PUBLIC_KEY'); return }
+    if (!window.GBPrimePay) { toast('กำลังโหลด GBPrimePay.js...'); return }
+    if (!cardData.number || !cardData.name || !cardData.expMonth || !cardData.expYear || !cardData.cvv) {
+      setErrorMsg('กรุณากรอกข้อมูลบัตรให้ครบ'); return
+    }
+    setPayState('loading')
+    setErrorMsg('')
+
+    window.GBPrimePay.configure({ publicKey: GB_PUBLIC_KEY })
+    window.GBPrimePay.card.create(
+      {
+        card: {
+          number: cardData.number.replace(/\s/g, ''),
+          name: cardData.name,
+          expMonth: cardData.expMonth,
+          expYear: cardData.expYear,
+          securityCode: cardData.cvv,
+        },
+      },
+      async (statusCode: number, response: { card?: { token: string } }) => {
+        if (statusCode !== 200 || !response.card?.token) {
+          setPayState('error')
+          setErrorMsg('ข้อมูลบัตรไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง')
+          return
+        }
         const user = await getUserId()
         if (!user) { setPayState('error'); setErrorMsg('กรุณาเข้าสู่ระบบ'); return }
         try {
           const res = await fetch(EDGE_FN, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
-            body: JSON.stringify({ memberId: user.id, memberEmail: user.email, memberName: state.account?.name, plan: plan.id, token, sourceType: 'card' }),
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getAccessToken()}` },
+            body: JSON.stringify({ memberId: user.id, memberEmail: user.email, memberName: state.account?.name, plan: plan.id, token: response.card.token, sourceType: 'card' }),
           })
           const json = await res.json()
           if (!res.ok || json.error) throw new Error(json.error || 'ตัดบัตรไม่สำเร็จ')
@@ -131,8 +153,7 @@ export default function MembershipPage() {
           setErrorMsg(String(e).replace('Error: ', ''))
         }
       },
-      onFormClosed: () => setPayState('idle'),
-    })
+    )
   }
 
   function priceDisplay(plan: typeof PLANS[0]) {
@@ -344,14 +365,14 @@ export default function MembershipPage() {
                 )}
 
                 {/* QR Code */}
-                {tab === 'promptpay' && payState === 'qr' && qrUri && (
+                {tab === 'promptpay' && payState === 'qr' && qrImage && (
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ fontSize: 13, color: '#5C564A', marginBottom: 14 }}>สแกน QR ด้วยแอปธนาคาร — รอยืนยันอัตโนมัติ</div>
                     <div style={{ background: '#fff', borderRadius: 16, padding: 16, display: 'inline-block', border: '1px solid #E5DECC', marginBottom: 14 }}>
-                      <img src={qrUri} alt="PromptPay QR" width={200} height={200} style={{ display: 'block' }} />
+                      <img src={qrImage} alt="PromptPay QR" width={200} height={200} style={{ display: 'block' }} />
                     </div>
                     <div style={{ fontSize: 12, color: '#8E8676', marginBottom: 16 }}>
-                      <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 99, background: '#F59E0B', marginRight: 6, verticalAlign: 'middle', animation: 'pulse 1.5s infinite' }} />
+                      <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 99, background: '#F59E0B', marginRight: 6, verticalAlign: 'middle' }} />
                       รอการยืนยัน...
                     </div>
                     <button onClick={closeModal} style={{ background: 'none', border: 'none', color: '#8E8676', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>
@@ -363,15 +384,37 @@ export default function MembershipPage() {
                 {/* Card tab */}
                 {tab === 'card' && (
                   <div>
-                    <div style={{ background: '#F6F2E9', borderRadius: 14, padding: '14px 16px', marginBottom: 16, fontSize: 13.5, color: '#5C564A', lineHeight: 1.6 }}>
-                      ชำระด้วยบัตรเครดิต/เดบิต Visa, Mastercard<br />
-                      <span style={{ fontSize: 12, color: '#8E8676' }}>ข้อมูลบัตรเข้ารหัสด้วย Omise — ปลอดภัย 100%</span>
-                    </div>
                     {payState === 'error' && (
                       <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#B91C1C' }}>
                         {errorMsg}
                       </div>
                     )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                      <input
+                        placeholder="หมายเลขบัตร"
+                        maxLength={19}
+                        value={cardData.number}
+                        onChange={e => setCardData(d => ({ ...d, number: e.target.value.replace(/\D/g, '').replace(/(.{4})/g, '$1 ').trim() }))}
+                        style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #E5DECC', fontSize: 15, letterSpacing: '.08em', background: '#FFFDF7' }}
+                      />
+                      <input
+                        placeholder="ชื่อบนบัตร"
+                        value={cardData.name}
+                        onChange={e => setCardData(d => ({ ...d, name: e.target.value.toUpperCase() }))}
+                        style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #E5DECC', fontSize: 14, background: '#FFFDF7' }}
+                      />
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                        <input placeholder="MM" maxLength={2} value={cardData.expMonth}
+                          onChange={e => setCardData(d => ({ ...d, expMonth: e.target.value.replace(/\D/g, '') }))}
+                          style={{ padding: '10px 10px', borderRadius: 10, border: '1px solid #E5DECC', fontSize: 14, textAlign: 'center', background: '#FFFDF7' }} />
+                        <input placeholder="YY" maxLength={2} value={cardData.expYear}
+                          onChange={e => setCardData(d => ({ ...d, expYear: e.target.value.replace(/\D/g, '') }))}
+                          style={{ padding: '10px 10px', borderRadius: 10, border: '1px solid #E5DECC', fontSize: 14, textAlign: 'center', background: '#FFFDF7' }} />
+                        <input placeholder="CVV" maxLength={4} value={cardData.cvv}
+                          onChange={e => setCardData(d => ({ ...d, cvv: e.target.value.replace(/\D/g, '') }))}
+                          style={{ padding: '10px 10px', borderRadius: 10, border: '1px solid #E5DECC', fontSize: 14, textAlign: 'center', background: '#FFFDF7' }} />
+                      </div>
+                    </div>
                     <button
                       onClick={() => payCard(modal.plan)}
                       disabled={payState === 'loading'}
@@ -388,7 +431,7 @@ export default function MembershipPage() {
             {/* Security note */}
             {payState !== 'success' && (
               <div style={{ marginTop: 16, textAlign: 'center', fontSize: 11.5, color: '#C9BFA8' }}>
-                🔒 ชำระผ่าน Omise (Opn Payments) — PCI DSS Level 1
+                🔒 ชำระผ่าน GBPrimePay — PCI DSS Level 1
               </div>
             )}
           </div>
