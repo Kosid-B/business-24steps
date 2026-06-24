@@ -25,19 +25,52 @@ declare global {
 
 type PaymentState = 'idle' | 'loading' | 'qr' | 'success' | 'error'
 
+type Billing = {
+  id: string
+  charge_id: string
+  source_type: string
+  plan: string
+  amount: number
+  status: string
+  paid_at: string | null
+  expires_at: string | null
+  created_at: string
+}
+
 export default function MembershipPage() {
   const { state, upgradePlan, toast } = useApp()
   const [modal, setModal] = useState<{ plan: typeof PLANS[0] } | null>(null)
   const [payState, setPayState] = useState<PaymentState>('idle')
-  const [qrImage, setQrImage] = useState('')       // base64 PNG จาก GBPrimePay
+  const [qrImage, setQrImage] = useState('')
   const [referenceNo, setReferenceNo] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
   const [tab, setTab] = useState<'promptpay' | 'card'>('promptpay')
   const [cardData, setCardData] = useState({ number: '', name: '', expMonth: '', expYear: '', cvv: '' })
+  const [billings, setBillings] = useState<Billing[]>([])
+  const [planExpiresAt, setPlanExpiresAt] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const supabase = createClient()
 
   const currentPlan = state.plan || 'free'
+
+  // โหลดประวัติ billing + plan_expires_at
+  useEffect(() => {
+    async function load() {
+      const { data: member } = await supabase
+        .from('members')
+        .select('plan_expires_at')
+        .maybeSingle()
+      if (member?.plan_expires_at) setPlanExpiresAt(member.plan_expires_at)
+
+      const { data } = await supabase
+        .from('billings')
+        .select('id,charge_id,source_type,plan,amount,status,paid_at,expires_at,created_at')
+        .order('created_at', { ascending: false })
+        .limit(10)
+      if (data) setBillings(data as Billing[])
+    }
+    load()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // โหลด GBPrimePay.js เมื่อเปิด tab บัตร
   useEffect(() => {
@@ -268,6 +301,31 @@ export default function MembershipPage() {
         ))}
       </div>
 
+      {/* Plan expiry notice */}
+      {currentPlan !== 'free' && planExpiresAt && (() => {
+        const exp = new Date(planExpiresAt)
+        const daysLeft = Math.ceil((exp.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+        const isWarning = daysLeft <= 7
+        return (
+          <div style={{
+            marginTop: 16, padding: '12px 18px', borderRadius: 14,
+            background: isWarning ? '#FEF9EC' : '#F0FAF4',
+            border: `1px solid ${isWarning ? '#F59E0B' : '#86EFAC'}`,
+            display: 'flex', alignItems: 'center', gap: 12,
+          }}>
+            <span style={{ fontSize: 18 }}>{isWarning ? '⏰' : '✅'}</span>
+            <div>
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#1C1A15' }}>
+                {isWarning ? `แผนหมดในอีก ${daysLeft} วัน` : 'แผนยังใช้งานได้'}
+              </span>
+              <span style={{ fontSize: 13, color: '#5C564A', marginLeft: 8 }}>
+                ถึง {exp.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+              </span>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* FAQ */}
       <div style={{ marginTop: 28 }}>
         <div style={{ fontWeight: 700, fontSize: 16, color: '#1C1A15', marginBottom: 14 }}>คำถามที่พบบ่อย</div>
@@ -283,6 +341,58 @@ export default function MembershipPage() {
           </div>
         ))}
       </div>
+
+      {/* ── Billing History ───────────────────────────────────── */}
+      {billings.length > 0 && (
+        <div style={{ marginTop: 28 }}>
+          <div style={{ fontWeight: 700, fontSize: 16, color: '#1C1A15', marginBottom: 14 }}>ประวัติการชำระเงิน</div>
+          <div style={{ background: '#FFFDF7', border: '1px solid #E5DECC', borderRadius: 20, overflow: 'hidden' }}>
+            {/* header */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px 80px', padding: '12px 20px', borderBottom: '1px solid #F1ECDF', fontSize: 12, fontWeight: 700, color: '#8E8676', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+              <div>วันที่</div>
+              <div style={{ textAlign: 'center' }}>แผน</div>
+              <div style={{ textAlign: 'right' }}>จำนวน</div>
+              <div style={{ textAlign: 'center' }}>สถานะ</div>
+            </div>
+            {billings.map(b => {
+              const date = new Date(b.paid_at ?? b.created_at)
+              const planColor = PLAN_COLORS[b.plan] ?? '#8E8676'
+              const planLabel = b.plan === 'monthly' ? 'รายเดือน' : 'รายปี'
+              const srcIcon = b.source_type === 'promptpay' ? '📱' : '💳'
+              const statusConfig: Record<string, { label: string; bg: string; color: string }> = {
+                paid:    { label: 'สำเร็จ',  bg: '#DCFCE7', color: '#16704A' },
+                pending: { label: 'รอชำระ', bg: '#FEF9EC', color: '#B45309' },
+                failed:  { label: 'ล้มเหลว', bg: '#FEE2E2', color: '#B91C1C' },
+                refunded:{ label: 'คืนเงิน', bg: '#EDE9FE', color: '#6D28D9' },
+              }
+              const st = statusConfig[b.status] ?? statusConfig.pending
+              return (
+                <div key={b.id} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px 80px', alignItems: 'center', padding: '13px 20px', borderBottom: '1px solid #F1ECDF' }}>
+                  <div>
+                    <div style={{ fontSize: 13.5, color: '#1C1A15', fontWeight: 500 }}>
+                      {srcIcon} {date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: '#8E8676', marginTop: 2 }}>
+                      Ref: {b.charge_id?.slice(0, 16)}…
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: planColor }}>{planLabel}</span>
+                  </div>
+                  <div className="mono" style={{ textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#1C1A15' }}>
+                    ฿{b.amount.toLocaleString()}
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, background: st.bg, color: st.color, padding: '3px 10px', borderRadius: 999 }}>
+                      {st.label}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Payment Modal ─────────────────────────────────────── */}
       {modal && (
