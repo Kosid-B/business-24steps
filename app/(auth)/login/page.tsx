@@ -26,11 +26,11 @@ export default function LoginPage() {
           options: { data: { name, company } },
         })
         if (error) throw error
-        router.push('/')
+        router.push('/dashboard')
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
-        router.push('/')
+        router.push('/dashboard')
       }
       router.refresh()
     } catch (err: unknown) {
@@ -44,7 +44,7 @@ export default function LoginPage() {
     setLoading(true)
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/` },
+      options: { redirectTo: `${window.location.origin}/dashboard` },
     })
     if (error) { setError(error.message); setLoading(false) }
   }

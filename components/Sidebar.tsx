@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useApp } from '@/lib/context/AppContext'
 
 const NAV = [
-  { href: '/', label: 'หน้าแรก', icon: 'M4 11l8-7 8 7M6 10v9h12v-9' },
+  { href: '/dashboard', label: 'หน้าแรก', icon: 'M4 11l8-7 8 7M6 10v9h12v-9' },
   { href: '/roadmap', label: 'เส้นทาง 24 ก้าว', icon: 'M9 4 4 6v14l5-2 6 2 5-2V4l-5 2-6-2ZM9 4v14M15 6v14' },
   { href: '/learn', label: 'บทเรียน & บทความ', icon: 'M4 5.5A2 2 0 0 1 6 4h13v15H6a2 2 0 0 0-2 2V5.5ZM19 19H6a2 2 0 0 0-2 2' },
   { href: '/plan', label: 'แผนธุรกิจ', icon: 'M7 3h7l5 5v13H7zM14 3v5h5M9 13h6M9 17h6' },
@@ -23,7 +23,7 @@ export default function Sidebar() {
   const open = state.sidebarOpen !== false
 
   const isActive = (href: string) =>
-    href === '/' ? pathname === '/' : pathname.startsWith(href)
+    href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
 
   return (
     <aside style={{
