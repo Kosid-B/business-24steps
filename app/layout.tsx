@@ -1,9 +1,12 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
   title: 'ตั้งต้น — 24 ก้าวสร้างธุรกิจ',
   description: 'แพลตฟอร์ม SaaS พาผู้เริ่มต้นธุรกิจเดินทีละก้าวจนมีลูกค้าจ่ายเงินจริง อิงกรอบ MIT Disciplined Entrepreneurship',
+}
+
+export const viewport: Viewport = {
   themeColor: '#16704A',
 }
 
