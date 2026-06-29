@@ -2,21 +2,92 @@
 
 export const runtime = 'edge'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { useApp } from '@/lib/context/AppContext'
 import { STEPS, THEMES } from '@/lib/data/steps'
 import { getXp, getPowerLevels, getRankTier } from '@/lib/game'
+import { createClient } from '@/lib/supabase/client'
+
+const EDGE_FN = process.env.NEXT_PUBLIC_SUPABASE_URL + '/functions/v1/step-coach'
 
 export default function PlanPage() {
   const { state, updateVenture } = useApp()
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({ name: state.venture?.name || '', tagline: state.venture?.tagline || '', category: state.venture?.category || '' })
+  const [aiPlan, setAiPlan] = useState('')
+  const [aiPlanLoading, setAiPlanLoading] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
+  const supabase = createClient()
 
   const xp = getXp(state)
   const rank = getRankTier(xp)
   const powers = getPowerLevels(state)
   const doneSteps = STEPS.filter(s => state.progress[s.n]?.done)
+
+  async function generatePlan() {
+    if (aiPlanLoading) return
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
+    setAiPlanLoading(true)
+    setAiPlan('')
+
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token ?? ''
+      const lastN = doneSteps.length > 0 ? doneSteps[doneSteps.length - 1].n : 1
+
+      const res = await fetch(EDGE_FN, {
+        method: 'POST',
+        signal: abortRef.current.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          question: `สังเคราะห์ข้อมูลทั้งหมดจากเวิร์กชีตของฉัน แล้วเขียน "แผนธุรกิจ 1 หน้า" ที่ประกอบด้วย:
+1. ภาพรวมธุรกิจ — ชื่อ + สรุปสิ่งที่ทำใน 2-3 ประโยค
+2. กลุ่มลูกค้าเป้าหมาย — Persona + ตลาดหัวหาดที่เลือก
+3. คุณค่าที่ส่งมอบ — ปัญหาที่แก้ + ประโยชน์ที่วัดได้
+4. โมเดลรายได้ — วิธีเก็บเงิน + ราคาที่ตั้ง
+5. สิ่งที่ต้องทำต่อไป 3 อย่างสำคัญที่สุด
+เขียนภาษาไทย กระชับ ปฏิบัติได้จริง ไม่ต้องอ้างเลขก้าว`,
+          context: {
+            name: state.account?.name,
+            venture: state.venture?.name,
+            plan: state.plan,
+            doneCount: doneSteps.length,
+            currentStepN: lastN,
+            progress: state.progress,
+          },
+        }),
+      })
+
+      if (!res.body) throw new Error('no body')
+      const reader = res.body.getReader()
+      const dec = new TextDecoder()
+      let buf = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += dec.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const raw = line.slice(6).trim()
+          if (raw === '[DONE]') continue
+          try {
+            const ev = JSON.parse(raw)
+            if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+              setAiPlan(t => t + ev.delta.text)
+            }
+          } catch { /* skip */ }
+        }
+      }
+    } catch (e: unknown) {
+      if ((e as Error).name !== 'AbortError') setAiPlan(`เกิดข้อผิดพลาด: ${e}`)
+    } finally {
+      setAiPlanLoading(false)
+    }
+  }
 
   async function saveVenture() {
     await updateVenture({ name: form.name, tagline: form.tagline, category: form.category })
@@ -111,6 +182,53 @@ export default function PlanPage() {
           </div>
         </div>
         <RadarChart powers={powers} />
+      </div>
+
+      {/* AI Business Plan */}
+      <div style={{ marginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+          <div style={{ fontWeight: 700, fontSize: 16, color: '#1C1A15' }}>แผนธุรกิจสังเคราะห์โดย AI</div>
+          <button
+            onClick={generatePlan}
+            disabled={aiPlanLoading || doneSteps.length === 0}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              height: 34, padding: '0 16px', borderRadius: 10, border: 'none',
+              background: doneSteps.length === 0 ? '#E5DECC' : aiPlanLoading ? '#c8dfd3' : '#16704A',
+              color: doneSteps.length === 0 ? '#8E8676' : '#fff',
+              fontWeight: 700, fontSize: 13, fontFamily: 'Kanit, sans-serif',
+              cursor: aiPlanLoading || doneSteps.length === 0 ? 'not-allowed' : 'pointer',
+              transition: 'background .2s',
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+              style={aiPlanLoading ? { animation: 'ttSpin 1s linear infinite' } : undefined}>
+              {aiPlanLoading
+                ? <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                : <path d="M12 2a9 9 0 0 1 9 9c0 4-2.5 7.5-6 8.8V22l-3-2-3 2v-2.2C5.5 18.5 3 15 3 11a9 9 0 0 1 9-9Z" />}
+            </svg>
+            {aiPlanLoading ? 'กำลังสร้าง…' : aiPlan ? 'สร้างใหม่' : 'สร้างแผนธุรกิจ'}
+          </button>
+        </div>
+
+        {doneSteps.length === 0 ? (
+          <div className="card card-pad" style={{ textAlign: 'center', color: '#8E8676', fontSize: 14 }}>
+            ทำก้าวแรกให้สำเร็จก่อน แล้ว AI จะสังเคราะห์แผนธุรกิจจากข้อมูลที่กรอกทั้งหมดให้
+          </div>
+        ) : (aiPlan || aiPlanLoading) && (
+          <div className="card card-pad" style={{ background: '#F9F7F0', borderColor: '#16704A33', marginBottom: 4 }}>
+            {aiPlan
+              ? <div style={{ fontSize: 14, lineHeight: 1.85, color: '#1C1A15', whiteSpace: 'pre-wrap' }}>{aiPlan}</div>
+              : <div style={{ fontSize: 14, color: '#8E8676', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                    style={{ animation: 'ttSpin 1s linear infinite', flexShrink: 0 }}>
+                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                  </svg>
+                  AI กำลังวิเคราะห์ข้อมูลจากเวิร์กชีตทั้งหมด…
+                </div>
+            }
+          </div>
+        )}
       </div>
 
       {/* Steps summary by phase */}

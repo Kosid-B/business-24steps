@@ -10,6 +10,23 @@ import { STEPS, themeOf } from '@/lib/data/steps'
 import { fmtBaht } from '@/lib/game'
 import StepAiPanel from '@/components/StepAiPanel'
 
+const CONFETTI_COLORS = ['#16704A','#A87A1E','#E8623D','#2F4B7C','#EADB9C','#6B3F69','#2C6E6A']
+const CONFETTI_PARTS = Array.from({ length: 22 }, (_, i) => {
+  const angle = (i / 22) * 2 * Math.PI
+  const dist = 55 + (i % 4) * 28
+  return {
+    id: i,
+    tx: `${Math.cos(angle) * dist}px`,
+    ty: `${Math.sin(angle) * dist - 25}px`,
+    size: `${8 + (i % 5) * 4}px`,
+    bg: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+    dur: `${700 + (i % 5) * 180}ms`,
+    delay: `${(i % 6) * 45}ms`,
+    br: i % 3 !== 0 ? '50%' : '4px',
+    rot: `${(i * 53) % 360}deg`,
+  }
+})
+
 export default function StepPage({ params }: { params: Promise<{ n: string }> }) {
   const { n: nStr } = use(params)
   const n = parseInt(nStr, 10)
@@ -22,6 +39,7 @@ export default function StepPage({ params }: { params: Promise<{ n: string }> })
   const [listItems, setListItems] = useState<string[]>([''])
   const [calcVals, setCalcVals] = useState<Record<string, number>>({})
   const [saving, setSaving] = useState(false)
+  const [celebrating, setCelebrating] = useState(false)
 
   const rec = state.progress[n]
 
@@ -56,7 +74,11 @@ export default function StepPage({ params }: { params: Promise<{ n: string }> })
     await markStep(n, done, data)
     setSaving(false)
     toast(done ? `✅ ก้าวที่ ${String(n).padStart(2, '0')} สำเร็จ!` : 'บันทึกแล้ว')
-    if (done && nextStep) setTimeout(() => router.push(`/step/${nextStep.n}`), 800)
+    if (done) {
+      setCelebrating(true)
+      setTimeout(() => setCelebrating(false), 2000)
+    }
+    if (done && nextStep) setTimeout(() => router.push(`/step/${nextStep.n}`), 900)
   }
 
   const calcResult = ws.type === 'calc' ? ws.compute(calcVals) : 0
@@ -220,6 +242,28 @@ export default function StepPage({ params }: { params: Promise<{ n: string }> })
         {prevStep && <Link href={`/step/${prevStep.n}`} className="btn btn-ghost btn-sm">← ก้าวที่ {String(prevStep.n).padStart(2, '0')}</Link>}
         {nextStep && <Link href={`/step/${nextStep.n}`} className="btn btn-ghost btn-sm">ก้าวที่ {String(nextStep.n).padStart(2, '0')} →</Link>}
       </div>
+
+      {/* Celebration burst */}
+      {celebrating && (
+        <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 9999, overflow: 'hidden' }}>
+          <style>{CONFETTI_PARTS.map(c => `
+            @keyframes cb${c.id}{0%{transform:translate(-50%,-50%) scale(1) rotate(0deg);opacity:1}100%{transform:translate(calc(-50% + ${c.tx}),calc(-50% + ${c.ty})) scale(.25) rotate(${c.rot});opacity:0}}
+          `).join('')}</style>
+          {CONFETTI_PARTS.map(c => (
+            <div key={c.id} style={{
+              position: 'absolute', left: '50%', top: '50%',
+              width: c.size, height: c.size,
+              borderRadius: c.br, background: c.bg,
+              animation: `cb${c.id} ${c.dur} ease-out ${c.delay} forwards`,
+            }} />
+          ))}
+          <div style={{
+            position: 'absolute', left: '50%', top: '50%',
+            fontSize: 52, lineHeight: 1,
+            animation: 'ttPop .25s ease-out, confettiCenter 1s ease-out .15s forwards',
+          }}>✅</div>
+        </div>
+      )}
     </div>
   )
 }

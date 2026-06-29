@@ -42,6 +42,7 @@ body {
 @keyframes ttRise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes ttSpin { to { transform: rotate(360deg); } }
 @keyframes ttPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .6; transform: scale(1.3); } }
+@keyframes confettiCenter { 0% { opacity:1; transform:translate(-50%,-50%) scale(1); } 100% { opacity:0; transform:translate(-50%,-50%) scale(1.8); } }
 
 .anim-fade { animation: ttFade .4s cubic-bezier(.22,.61,.36,1); }
 .anim-pop  { animation: ttPop  .2s ease; }

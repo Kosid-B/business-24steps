@@ -5,7 +5,7 @@ export const runtime = 'edge'
 import { useState } from 'react'
 import Link from 'next/link'
 import { useApp } from '@/lib/context/AppContext'
-import { getProgress } from '@/lib/game'
+import { getProgress, getXp } from '@/lib/game'
 import { THEMES, STEPS, themeOf } from '@/lib/data/steps'
 
 export default function RoadmapPage() {
@@ -24,22 +24,34 @@ export default function RoadmapPage() {
       <h1 style={{ margin: 0, fontSize: 30, fontWeight: 700, letterSpacing: '-.02em', color: '#1C1A15' }}>24 ก้าวสร้างธุรกิจ</h1>
       <p style={{ margin: '7px 0 0', fontSize: 15, color: '#5C564A', maxWidth: 560 }}>แบ่งเป็น 6 ช่วงตามกรอบ Disciplined Entrepreneurship — เดินทีละก้าวจนมีลูกค้าจ่ายเงินจริง</p>
 
-      {/* Live stats */}
+      {/* Personal stats */}
       <div className="card" style={{ marginTop: 20, padding: '14px 20px', display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'center' }}>
         {[
-          { icon: 'M12 8a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM5.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5', val: '12,480', label: 'สมาชิกทั้งหมด', color: '#16704A', live: false },
-          { icon: 'M13 3 5 13h6l-1 8 8-10h-6l1-8Z', val: '327', label: 'กำลังออนไลน์ตอนนี้', color: '#E8623D', live: true },
-          { icon: 'M8 11l2.5-2.5a2 2 0 0 1 3 0L18 13M11 13l2 2M9 15l2 2', val: '58', label: 'ดีลจับคู่สัปดาห์นี้', color: '#2F4B7C', live: false },
+          {
+            icon: 'M5 12.5 10 17l9-10',
+            val: String(progress.done),
+            label: 'ก้าวที่สำเร็จแล้ว',
+            color: '#16704A',
+          },
+          {
+            icon: 'M12 2l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z',
+            val: String(getXp(state)),
+            label: 'XP สะสม',
+            color: '#A87A1E',
+          },
+          {
+            icon: 'M12 8a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM5.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5',
+            val: String(Object.values(state.lessonDone || {}).filter(Boolean).length),
+            label: 'บทเรียนที่อ่านแล้ว',
+            color: '#2F4B7C',
+          },
         ].map(s => (
           <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 150 }}>
             <span style={{ width: 38, height: 38, borderRadius: 10, background: s.color + '15', color: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={s.icon} /></svg>
             </span>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="mono" style={{ fontWeight: 700, fontSize: 18, color: '#1C1A15' }}>{s.val}</span>
-                {s.live && <span className="pulse-dot" />}
-              </div>
+              <span className="mono" style={{ fontWeight: 700, fontSize: 18, color: '#1C1A15' }}>{s.val}</span>
               <div style={{ fontSize: 12, color: '#8E8676' }}>{s.label}</div>
             </div>
           </div>
