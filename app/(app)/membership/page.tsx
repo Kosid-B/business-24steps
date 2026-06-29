@@ -3,6 +3,7 @@
 export const runtime = 'edge'
 
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useApp } from '@/lib/context/AppContext'
 import { PLANS } from '@/lib/data/content'
 import { createClient } from '@/lib/supabase/client'
@@ -13,17 +14,9 @@ const PLAN_COLORS: Record<string, string> = {
   yearly: '#A87A1E',
 }
 
-const GB_PUBLIC_KEY = process.env.NEXT_PUBLIC_GB_PUBLIC_KEY ?? ''
 const EDGE_FN = process.env.NEXT_PUBLIC_SUPABASE_URL + '/functions/v1/create-charge'
 
-declare global {
-  interface Window {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    GBPrimePay: any
-  }
-}
-
-type PaymentState = 'idle' | 'loading' | 'qr' | 'success' | 'error'
+type PaymentState = 'idle' | 'loading' | 'success' | 'error'
 
 type Billing = {
   id: string
@@ -38,17 +31,14 @@ type Billing = {
 }
 
 export default function MembershipPage() {
-  const { state, upgradePlan, toast } = useApp()
+  const { state, upgradePlan } = useApp()
   const [modal, setModal] = useState<{ plan: typeof PLANS[0] } | null>(null)
   const [payState, setPayState] = useState<PaymentState>('idle')
-  const [qrImage, setQrImage] = useState('')
-  const [referenceNo, setReferenceNo] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
-  const [tab, setTab] = useState<'promptpay' | 'card'>('promptpay')
-  const [cardData, setCardData] = useState({ number: '', name: '', expMonth: '', expYear: '', cvv: '' })
   const [billings, setBillings] = useState<Billing[]>([])
   const [planExpiresAt, setPlanExpiresAt] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const searchParams = useSearchParams()
   const supabase = createClient()
 
   const currentPlan = state.plan || 'free'
@@ -72,121 +62,65 @@ export default function MembershipPage() {
     load()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // โหลด GBPrimePay.js เมื่อเปิด tab บัตร
+  // ตรวจ ?payment=done เมื่อ Xendit redirect กลับมา
   useEffect(() => {
-    if (!modal || tab !== 'card') return
-    if (window.GBPrimePay) return
-    const s = document.createElement('script')
-    s.src = 'https://cdn.gbprimepay.com/js/gbprimepay.min.js'
-    s.async = true
-    document.head.appendChild(s)
-  }, [modal, tab])
+    const payment = searchParams.get('payment')
+    const ref     = searchParams.get('ref')
+    if (payment !== 'done' || !ref) return
 
-  // poll billing status ทุก 5 วินาที หลังสร้าง QR
-  useEffect(() => {
-    if (payState !== 'qr' || !referenceNo) return
+    // poll billing จนกว่า webhook จะอัปเดตเป็น paid
     pollRef.current = setInterval(async () => {
       const { data } = await supabase
         .from('billings')
         .select('status,plan')
-        .eq('charge_id', referenceNo)
+        .eq('charge_id', ref)
         .eq('status', 'paid')
         .maybeSingle()
       if (data) {
         clearInterval(pollRef.current!)
         await upgradePlan(data.plan as 'monthly' | 'yearly')
         setPayState('success')
+        setModal(null)
       }
-    }, 5000)
+    }, 3000)
+
     return () => clearInterval(pollRef.current!)
-  }, [payState, referenceNo]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function closeModal() {
     clearInterval(pollRef.current!)
     setModal(null)
     setPayState('idle')
-    setQrImage('')
-    setReferenceNo('')
     setErrorMsg('')
-    setTab('promptpay')
-    setCardData({ number: '', name: '', expMonth: '', expYear: '', cvv: '' })
   }
 
-  async function getUserId() {
-    const { data: { user } } = await supabase.auth.getUser()
-    return user
-  }
-
-  async function getAccessToken() {
-    return (await supabase.auth.getSession()).data.session?.access_token ?? ''
-  }
-
-  async function payPromptPay(plan: typeof PLANS[0]) {
+  async function payWithXendit(plan: typeof PLANS[0]) {
     setPayState('loading')
     setErrorMsg('')
-    const user = await getUserId()
-    if (!user) { setPayState('error'); setErrorMsg('กรุณาเข้าสู่ระบบ'); return }
     try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('กรุณาเข้าสู่ระบบ')
+
+      const token = (await supabase.auth.getSession()).data.session?.access_token ?? ''
       const res = await fetch(EDGE_FN, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getAccessToken()}` },
-        body: JSON.stringify({ memberId: user.id, memberEmail: user.email, memberName: state.account?.name, plan: plan.id, sourceType: 'promptpay' }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          memberId:   user.id,
+          memberEmail: user.email,
+          memberName: state.account?.name,
+          plan:       plan.id,
+        }),
       })
       const json = await res.json()
-      if (!res.ok || json.error) throw new Error(json.error || 'ไม่สามารถสร้าง QR ได้')
-      setQrImage(json.qrImage)        // base64 PNG
-      setReferenceNo(json.referenceNo)
-      setPayState('qr')
+      if (!res.ok || json.error) throw new Error(json.error || 'สร้าง Invoice ไม่สำเร็จ')
+
+      // redirect ไปหน้าชำระเงิน Xendit
+      window.location.href = json.invoiceUrl
     } catch (e) {
       setPayState('error')
       setErrorMsg(String(e).replace('Error: ', ''))
     }
-  }
-
-  async function payCard(plan: typeof PLANS[0]) {
-    if (!GB_PUBLIC_KEY) { toast('ยังไม่ได้ตั้งค่า NEXT_PUBLIC_GB_PUBLIC_KEY'); return }
-    if (!window.GBPrimePay) { toast('กำลังโหลด GBPrimePay.js...'); return }
-    if (!cardData.number || !cardData.name || !cardData.expMonth || !cardData.expYear || !cardData.cvv) {
-      setErrorMsg('กรุณากรอกข้อมูลบัตรให้ครบ'); return
-    }
-    setPayState('loading')
-    setErrorMsg('')
-
-    window.GBPrimePay.configure({ publicKey: GB_PUBLIC_KEY })
-    window.GBPrimePay.card.create(
-      {
-        card: {
-          number: cardData.number.replace(/\s/g, ''),
-          name: cardData.name,
-          expMonth: cardData.expMonth,
-          expYear: cardData.expYear,
-          securityCode: cardData.cvv,
-        },
-      },
-      async (statusCode: number, response: { card?: { token: string } }) => {
-        if (statusCode !== 200 || !response.card?.token) {
-          setPayState('error')
-          setErrorMsg('ข้อมูลบัตรไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง')
-          return
-        }
-        const user = await getUserId()
-        if (!user) { setPayState('error'); setErrorMsg('กรุณาเข้าสู่ระบบ'); return }
-        try {
-          const res = await fetch(EDGE_FN, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getAccessToken()}` },
-            body: JSON.stringify({ memberId: user.id, memberEmail: user.email, memberName: state.account?.name, plan: plan.id, token: response.card.token, sourceType: 'card' }),
-          })
-          const json = await res.json()
-          if (!res.ok || json.error) throw new Error(json.error || 'ตัดบัตรไม่สำเร็จ')
-          await upgradePlan(plan.id as 'monthly' | 'yearly')
-          setPayState('success')
-        } catch (e) {
-          setPayState('error')
-          setErrorMsg(String(e).replace('Error: ', ''))
-        }
-      },
-    )
   }
 
   function priceDisplay(plan: typeof PLANS[0]) {
@@ -201,6 +135,17 @@ export default function MembershipPage() {
       <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: '#8E8676', marginBottom: 6 }}>สมาชิก</div>
       <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, letterSpacing: '-.01em', color: '#1C1A15' }}>เลือกแผนที่ใช่สำหรับคุณ</h1>
       <p style={{ margin: '7px 0 0', fontSize: 14.5, color: '#5C564A' }}>สร้างธุรกิจจากศูนย์สู่รายได้จริงด้วยการสนับสนุนที่เหมาะกับคุณ</p>
+
+      {/* success banner (กลับจาก Xendit) */}
+      {payState === 'success' && (
+        <div style={{ marginTop: 20, padding: '16px 20px', borderRadius: 16, background: '#F0FAF4', border: '1px solid #86EFAC', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <span style={{ fontSize: 28 }}>🎉</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 16, color: '#16704A' }}>ชำระเงินสำเร็จ!</div>
+            <div style={{ fontSize: 13.5, color: '#5C564A' }}>เปิดใช้งานแผนแล้ว — ตรวจสอบอีเมลสำหรับใบเสร็จ</div>
+          </div>
+        </div>
+      )}
 
       {/* Plan cards */}
       <div style={{ marginTop: 24, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
@@ -342,12 +287,11 @@ export default function MembershipPage() {
         ))}
       </div>
 
-      {/* ── Billing History ───────────────────────────────────── */}
+      {/* Billing History */}
       {billings.length > 0 && (
         <div style={{ marginTop: 28 }}>
           <div style={{ fontWeight: 700, fontSize: 16, color: '#1C1A15', marginBottom: 14 }}>ประวัติการชำระเงิน</div>
           <div style={{ background: '#FFFDF7', border: '1px solid #E5DECC', borderRadius: 20, overflow: 'hidden' }}>
-            {/* header */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px 80px', padding: '12px 20px', borderBottom: '1px solid #F1ECDF', fontSize: 12, fontWeight: 700, color: '#8E8676', textTransform: 'uppercase', letterSpacing: '.06em' }}>
               <div>วันที่</div>
               <div style={{ textAlign: 'center' }}>แผน</div>
@@ -360,10 +304,10 @@ export default function MembershipPage() {
               const planLabel = b.plan === 'monthly' ? 'รายเดือน' : 'รายปี'
               const srcIcon = b.source_type === 'promptpay' ? '📱' : '💳'
               const statusConfig: Record<string, { label: string; bg: string; color: string }> = {
-                paid:    { label: 'สำเร็จ',  bg: '#DCFCE7', color: '#16704A' },
-                pending: { label: 'รอชำระ', bg: '#FEF9EC', color: '#B45309' },
-                failed:  { label: 'ล้มเหลว', bg: '#FEE2E2', color: '#B91C1C' },
-                refunded:{ label: 'คืนเงิน', bg: '#EDE9FE', color: '#6D28D9' },
+                paid:     { label: 'สำเร็จ',  bg: '#DCFCE7', color: '#16704A' },
+                pending:  { label: 'รอชำระ', bg: '#FEF9EC', color: '#B45309' },
+                failed:   { label: 'ล้มเหลว', bg: '#FEE2E2', color: '#B91C1C' },
+                refunded: { label: 'คืนเงิน', bg: '#EDE9FE', color: '#6D28D9' },
               }
               const st = statusConfig[b.status] ?? statusConfig.pending
               return (
@@ -394,156 +338,52 @@ export default function MembershipPage() {
         </div>
       )}
 
-      {/* ── Payment Modal ─────────────────────────────────────── */}
+      {/* Payment Modal */}
       {modal && (
         <div
           onClick={(e) => e.target === e.currentTarget && closeModal()}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
         >
-          <div style={{ background: '#FFFDF7', borderRadius: 24, padding: 28, width: '100%', maxWidth: 420, position: 'relative' }}>
-            {/* close */}
+          <div style={{ background: '#FFFDF7', borderRadius: 24, padding: 28, width: '100%', maxWidth: 400, position: 'relative' }}>
             <button onClick={closeModal} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#8E8676', lineHeight: 1 }}>✕</button>
 
-            {/* success */}
-            {payState === 'success' && (
-              <div style={{ textAlign: 'center', padding: '12px 0' }}>
-                <div style={{ fontSize: 52, marginBottom: 12 }}>🎉</div>
-                <div style={{ fontWeight: 700, fontSize: 20, color: '#1C1A15', marginBottom: 8 }}>ชำระเงินสำเร็จ!</div>
-                <div style={{ fontSize: 14, color: '#5C564A', marginBottom: 20 }}>เปิดใช้งานแผน{modal.plan.name}แล้ว — ตรวจสอบอีเมลสำหรับใบเสร็จ</div>
-                <button onClick={closeModal} className="btn" style={{ background: PLAN_COLORS[modal.plan.id], color: '#fff', border: 'none', fontWeight: 700, width: '100%' }}>
-                  เริ่มใช้งาน
-                </button>
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.1em', color: '#8E8676', textTransform: 'uppercase', marginBottom: 4 }}>ชำระเงิน</div>
+              <div style={{ fontWeight: 700, fontSize: 20, color: '#1C1A15' }}>แผน{modal.plan.name}</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: PLAN_COLORS[modal.plan.id], marginTop: 4 }}>
+                ฿{modal.plan.price.toLocaleString()}
+                <span style={{ fontSize: 13, fontWeight: 400, color: '#8E8676', marginLeft: 6 }}>{modal.plan.period}</span>
+              </div>
+            </div>
+
+            <div style={{ background: '#F6F2E9', borderRadius: 14, padding: '14px 16px', marginBottom: 20, fontSize: 13.5, color: '#5C564A', lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 700, color: '#1C1A15', marginBottom: 4 }}>ชำระผ่าน Xendit</div>
+              รองรับ PromptPay QR · บัตรเครดิต/เดบิต<br />
+              กด &ldquo;ไปหน้าชำระเงิน&rdquo; แล้วเลือกวิธีชำระบนหน้าถัดไป
+            </div>
+
+            {payState === 'error' && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#B91C1C' }}>
+                {errorMsg}
               </div>
             )}
 
-            {/* main flow */}
-            {payState !== 'success' && (
-              <>
-                <div style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.1em', color: '#8E8676', textTransform: 'uppercase', marginBottom: 4 }}>ชำระเงิน</div>
-                  <div style={{ fontWeight: 700, fontSize: 20, color: '#1C1A15' }}>แผน{modal.plan.name}</div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: PLAN_COLORS[modal.plan.id], marginTop: 4 }}>
-                    ฿{modal.plan.price.toLocaleString()}
-                    <span style={{ fontSize: 13, fontWeight: 400, color: '#8E8676', marginLeft: 6 }}>{modal.plan.period}</span>
-                  </div>
-                </div>
+            <button
+              onClick={() => payWithXendit(modal.plan)}
+              disabled={payState === 'loading'}
+              className="btn"
+              style={{
+                background: PLAN_COLORS[modal.plan.id], color: '#fff', border: 'none',
+                fontWeight: 700, fontSize: 15, width: '100%',
+                opacity: payState === 'loading' ? .6 : 1,
+              }}
+            >
+              {payState === 'loading' ? 'กำลังสร้าง Invoice…' : 'ไปหน้าชำระเงิน →'}
+            </button>
 
-                {/* Tabs */}
-                {payState !== 'qr' && (
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-                    {(['promptpay', 'card'] as const).map(t => (
-                      <button
-                        key={t}
-                        onClick={() => setTab(t)}
-                        style={{
-                          flex: 1, padding: '9px 0', borderRadius: 12, fontWeight: 700, fontSize: 14,
-                          background: tab === t ? '#1C1A15' : 'transparent',
-                          color: tab === t ? '#fff' : '#5C564A',
-                          border: `1.5px solid ${tab === t ? '#1C1A15' : '#E5DECC'}`,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {t === 'promptpay' ? '📱 PromptPay' : '💳 บัตรเครดิต'}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* PromptPay tab */}
-                {tab === 'promptpay' && payState !== 'qr' && (
-                  <div>
-                    <div style={{ background: '#F6F2E9', borderRadius: 14, padding: '14px 16px', marginBottom: 16, fontSize: 13.5, color: '#5C564A', lineHeight: 1.6 }}>
-                      <div style={{ fontWeight: 700, color: '#1C1A15', marginBottom: 4 }}>วิธีชำระ</div>
-                      1. กด &ldquo;สร้าง QR Code&rdquo;<br />
-                      2. เปิดแอปธนาคาร → สแกน QR<br />
-                      3. ยืนยันการชำระ — ระบบอัปเดตทันที
-                    </div>
-                    {payState === 'error' && (
-                      <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#B91C1C' }}>
-                        {errorMsg}
-                      </div>
-                    )}
-                    <button
-                      onClick={() => payPromptPay(modal.plan)}
-                      disabled={payState === 'loading'}
-                      className="btn"
-                      style={{ background: PLAN_COLORS[modal.plan.id], color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, width: '100%', opacity: payState === 'loading' ? .6 : 1 }}
-                    >
-                      {payState === 'loading' ? 'กำลังสร้าง QR…' : 'สร้าง QR Code'}
-                    </button>
-                  </div>
-                )}
-
-                {/* QR Code */}
-                {tab === 'promptpay' && payState === 'qr' && qrImage && (
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 13, color: '#5C564A', marginBottom: 14 }}>สแกน QR ด้วยแอปธนาคาร — รอยืนยันอัตโนมัติ</div>
-                    <div style={{ background: '#fff', borderRadius: 16, padding: 16, display: 'inline-block', border: '1px solid #E5DECC', marginBottom: 14 }}>
-                      <img src={qrImage} alt="PromptPay QR" width={200} height={200} style={{ display: 'block' }} />
-                    </div>
-                    <div style={{ fontSize: 12, color: '#8E8676', marginBottom: 16 }}>
-                      <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 99, background: '#F59E0B', marginRight: 6, verticalAlign: 'middle' }} />
-                      รอการยืนยัน...
-                    </div>
-                    <button onClick={closeModal} style={{ background: 'none', border: 'none', color: '#8E8676', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>
-                      ยกเลิก
-                    </button>
-                  </div>
-                )}
-
-                {/* Card tab */}
-                {tab === 'card' && (
-                  <div>
-                    {payState === 'error' && (
-                      <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#B91C1C' }}>
-                        {errorMsg}
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-                      <input
-                        placeholder="หมายเลขบัตร"
-                        maxLength={19}
-                        value={cardData.number}
-                        onChange={e => setCardData(d => ({ ...d, number: e.target.value.replace(/\D/g, '').replace(/(.{4})/g, '$1 ').trim() }))}
-                        style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #E5DECC', fontSize: 15, letterSpacing: '.08em', background: '#FFFDF7' }}
-                      />
-                      <input
-                        placeholder="ชื่อบนบัตร"
-                        value={cardData.name}
-                        onChange={e => setCardData(d => ({ ...d, name: e.target.value.toUpperCase() }))}
-                        style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #E5DECC', fontSize: 14, background: '#FFFDF7' }}
-                      />
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                        <input placeholder="MM" maxLength={2} value={cardData.expMonth}
-                          onChange={e => setCardData(d => ({ ...d, expMonth: e.target.value.replace(/\D/g, '') }))}
-                          style={{ padding: '10px 10px', borderRadius: 10, border: '1px solid #E5DECC', fontSize: 14, textAlign: 'center', background: '#FFFDF7' }} />
-                        <input placeholder="YY" maxLength={2} value={cardData.expYear}
-                          onChange={e => setCardData(d => ({ ...d, expYear: e.target.value.replace(/\D/g, '') }))}
-                          style={{ padding: '10px 10px', borderRadius: 10, border: '1px solid #E5DECC', fontSize: 14, textAlign: 'center', background: '#FFFDF7' }} />
-                        <input placeholder="CVV" maxLength={4} value={cardData.cvv}
-                          onChange={e => setCardData(d => ({ ...d, cvv: e.target.value.replace(/\D/g, '') }))}
-                          style={{ padding: '10px 10px', borderRadius: 10, border: '1px solid #E5DECC', fontSize: 14, textAlign: 'center', background: '#FFFDF7' }} />
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => payCard(modal.plan)}
-                      disabled={payState === 'loading'}
-                      className="btn"
-                      style={{ background: PLAN_COLORS[modal.plan.id], color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, width: '100%', opacity: payState === 'loading' ? .6 : 1 }}
-                    >
-                      {payState === 'loading' ? 'กำลังประมวลผล…' : `ชำระ ฿${modal.plan.price.toLocaleString()} ด้วยบัตร`}
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Security note */}
-            {payState !== 'success' && (
-              <div style={{ marginTop: 16, textAlign: 'center', fontSize: 11.5, color: '#C9BFA8' }}>
-                🔒 ชำระผ่าน GBPrimePay — PCI DSS Level 1
-              </div>
-            )}
+            <div style={{ marginTop: 14, textAlign: 'center', fontSize: 11.5, color: '#C9BFA8' }}>
+              🔒 ชำระผ่าน Xendit — PCI DSS Compliant
+            </div>
           </div>
         </div>
       )}

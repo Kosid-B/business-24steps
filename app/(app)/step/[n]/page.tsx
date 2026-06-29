@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { useApp } from '@/lib/context/AppContext'
 import { STEPS, themeOf } from '@/lib/data/steps'
 import { fmtBaht } from '@/lib/game'
+import StepAiPanel from '@/components/StepAiPanel'
 
 export default function StepPage({ params }: { params: Promise<{ n: string }> }) {
   const { n: nStr } = use(params)
@@ -188,6 +189,25 @@ export default function StepPage({ params }: { params: Promise<{ n: string }> })
           </div>
         )}
       </div>
+
+      {/* AI Panel */}
+      <StepAiPanel
+        stepN={n}
+        stepTh={step.th}
+        themeColor={theme.color}
+        context={{
+          name: state.account?.name,
+          venture: state.venture?.name,
+          plan: state.plan,
+          doneCount: Object.values(state.progress).filter((r: unknown) => (r as { done?: boolean })?.done).length,
+          progress: state.progress,
+        }}
+        worksheetData={
+          ws.type === 'list' ? { items: listItems } :
+          ws.type === 'calc' ? calcVals :
+          formData
+        }
+      />
 
       {/* Actions */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
