@@ -1,19 +1,11 @@
-export const runtime = 'edge'
-
-import { redirect } from 'next/navigation'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import type { Metadata } from 'next'
 import Landing from '@/components/Landing'
 
-export default async function RootPage() {
-  const cookieStore = await cookies()
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} } }
-  )
-  const { data: { user } } = await supabase.auth.getUser()
-  if (user) redirect('/dashboard')
+export const metadata: Metadata = {
+  title: 'ตั้งต้น — จ้างพนักงาน AI ทำมาตรฐาน ISO/TIS ใน 3 วินาที',
+  description: 'เลิกจ้างที่ปรึกษาหลักแสนเพื่อทำ ISO/TIS เปลี่ยนมาจ้างพนักงาน AI ที่รู้จบทุกขั้นตอนมาตรฐานไทย ทดลองฟรี 7 วัน',
+}
 
+export default function RootPage() {
   return <Landing />
 }
