@@ -129,6 +129,11 @@ export default function Landing() {
             </div>
           ))}
         </div>
+        <div className="text-center mt-10">
+          <Link href="/directory" className="inline-flex items-center gap-1.5 text-cyan-400 hover:text-cyan-300 transition-colors text-[15px]">
+            สำรวจไดเรกทอรีจับคู่ธุรกิจ — ซัพพลายเออร์ ผู้ซื้อ นักลงทุน ตัวแทน →
+          </Link>
+        </div>
       </section>
 
       {/* ── Audit Tool ── */}
