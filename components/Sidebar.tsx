@@ -98,7 +98,7 @@ export default function Sidebar() {
                 {state.venture?.name || state.account?.name || 'ธุรกิจของคุณ'}
               </div>
               <div style={{ fontSize: 11, color: '#8E8676' }}>
-                {state.plan === 'free' ? 'ทดลองใช้' : state.plan === 'monthly' ? 'แผนรายเดือน' : 'แผนรายปี'}
+                {state.plan === 'free' ? 'ทดลองใช้' : state.plan === 'starter' ? 'แผนเริ่มต้น' : state.plan === 'pro' ? 'แผนโปร' : 'แผนธุรกิจ'}
               </div>
             </div>
           </div>

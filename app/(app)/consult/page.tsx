@@ -7,7 +7,7 @@ import { useApp } from '@/lib/context/AppContext'
 import { MENTORS } from '@/lib/data/content'
 import Link from 'next/link'
 
-const HOURS_MAP: Record<string, number> = { monthly: 2, yearly: 6 }
+const HOURS_MAP: Record<string, number> = { starter: 0, pro: 4, business: 12 }
 
 export default function ConsultPage() {
   const { state, addNotif } = useApp()

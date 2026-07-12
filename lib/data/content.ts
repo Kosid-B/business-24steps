@@ -76,12 +76,14 @@ export const MENTORS: Mentor[] = [
 ]
 
 export const PLANS: PlanOption[] = [
-  { id: 'free', name: 'ทดลองใช้', price: 0, period: 'ฟรี 15 วัน', tagline: 'ปลดล็อกทั้งระบบ 15 วัน',
-    features: ['เข้าถึงครบทั้ง 24 ก้าว', 'เวิร์กชีตและบทเรียนทั้งหมด', 'สรุปแผนธุรกิจอัตโนมัติ'], hours: 0, discount: 0, cta: 'กำลังทดลองใช้' },
-  { id: 'monthly', name: 'รายเดือน', price: 590, period: '/เดือน', tagline: 'ยืดหยุ่น ยกเลิกได้ทุกเมื่อ',
-    features: ['ทุกอย่างในแผนทดลอง', 'ปรึกษา Live 2 ชั่วโมง/เดือน', 'จับคู่ธุรกิจไม่จำกัด', 'เข้า Live สดทุกสัปดาห์'], hours: 2, discount: 0, cta: 'เลือกแผนนี้' },
-  { id: 'yearly', name: 'รายปี', price: 4990, period: '/ปี', tagline: 'ประหยัดกว่า 30%',
-    features: ['ทุกอย่างในแผนรายเดือน', 'ปรึกษา Live 24 ชั่วโมง/ปี', 'เซสชันกลุ่มพิเศษรายไตรมาส', 'สัมมนาประจำปี'], hours: 24, discount: 30, cta: 'เลือกแผนนี้' },
+  { id: 'free', name: 'ทดลองใช้', monthlyPrice: 0, yearlyPrice: 0, tagline: 'ปลดล็อกทั้งระบบ 15 วัน',
+    features: ['เข้าถึงครบทั้ง 24 ก้าว', 'เวิร์กชีตและบทเรียนทั้งหมด', 'AI แผนธุรกิจอัตโนมัติ'], hours: 0, seats: 1, cta: 'กำลังทดลองใช้' },
+  { id: 'starter', name: 'เริ่มต้น', monthlyPrice: 790, yearlyPrice: 6900, tagline: 'AI ผู้ช่วยครบ ยกเลิกได้ทุกเมื่อ',
+    features: ['ครบทั้ง 24 ก้าว + AI แผนธุรกิจ', 'บทเรียนและบทความทั้งหมด', 'จับคู่ธุรกิจ (Business Matching)', 'consult เสริมได้ ฿1,200/ชม.'], hours: 0, seats: 1, cta: 'เลือกแผนนี้' },
+  { id: 'pro', name: 'โปร', monthlyPrice: 1690, yearlyPrice: 16900, tagline: 'สำหรับธุรกิจที่โตจริงจัง', highlight: true,
+    features: ['ทุกอย่างในแผนเริ่มต้น', 'ร่างเอกสาร ISO/TIS ด้วย AI', 'ปรึกษา Live 4 ชั่วโมง/ปี', 'เข้า Live สดทุกสัปดาห์'], hours: 4, seats: 1, cta: 'เลือกแผนนี้' },
+  { id: 'business', name: 'ธุรกิจ', monthlyPrice: 4900, yearlyPrice: 49000, tagline: 'พนักงาน AI แทนที่ปรึกษาหลักแสน',
+    features: ['ทุกอย่างในแผนโปร', 'AI ทำเอกสารมาตรฐานครบทุกระบบ', 'ปรึกษา Live 12 ชั่วโมง/ปี', 'ทีม 3 ที่นั่ง + priority support'], hours: 12, seats: 3, cta: 'เลือกแผนนี้' },
 ]
 
 export const LISTINGS: Listing[] = [

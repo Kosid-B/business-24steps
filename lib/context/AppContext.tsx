@@ -100,7 +100,7 @@ export function AppProvider({ children, userId, userEmail, userName }: {
   }, [state, persist])
 
   const upgradePlan = useCallback(async (plan: AppState['plan']) => {
-    const hours = plan === 'monthly' ? 2 : plan === 'yearly' ? 24 : 0
+    const hours = plan === 'business' ? 12 : plan === 'pro' ? 4 : 0
     await persist({ ...state, plan, hours })
   }, [state, persist])
 

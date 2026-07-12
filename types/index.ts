@@ -1,4 +1,5 @@
-export type Plan = 'free' | 'monthly' | 'yearly'
+export type Plan = 'free' | 'starter' | 'pro' | 'business'
+export type Billing = 'monthly' | 'yearly'
 
 export interface Member {
   id: string
@@ -153,11 +154,12 @@ export interface Mentor {
 export interface PlanOption {
   id: Plan
   name: string
-  price: number
-  period: string
+  monthlyPrice: number
+  yearlyPrice: number
   tagline: string
   features: string[]
-  hours: number
-  discount: number
+  hours: number      // ชั่วโมง consult ต่อปี
+  seats: number
+  highlight?: boolean
   cta: string
 }
