@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next'
 import { DIR_CATS } from '@/lib/data/directory'
 import { LISTINGS } from '@/lib/data/content'
+import { POSTS } from '@/lib/data/blog'
 
 // หน้า public ทั้งหมดที่ crawl ได้ (landing + directory) — ส่วน app หลัง auth ไม่รวม
 export default function sitemap(): MetadataRoute.Sitemap {
@@ -18,6 +19,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
       url: `${base}/directory/${l.cat}/${l.id}`,
       changeFrequency: 'monthly' as const,
       priority: 0.6,
+    })),
+    { url: `${base}/blog`, changeFrequency: 'weekly' as const, priority: 0.8 },
+    ...POSTS.map(p => ({
+      url: `${base}/blog/${p.slug}`,
+      lastModified: new Date(p.date),
+      changeFrequency: 'monthly' as const,
+      priority: 0.7,
     })),
   ]
 }

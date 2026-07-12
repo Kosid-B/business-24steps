@@ -262,7 +262,11 @@ export default function Landing() {
             <span className="w-7 h-7 rounded-lg bg-cyan-500 text-slate-950 flex items-center justify-center font-bold text-sm">B.</span>
             <span>© {new Date().getFullYear()} B. Training Consultant Co., Ltd. · Business Intelligent</span>
           </div>
-          <Link href="/login" className="text-cyan-400 hover:text-cyan-300 transition-colors">เข้าสู่ระบบ / สมัครใช้งาน →</Link>
+          <div className="flex items-center gap-5">
+            <Link href="/blog" className="text-slate-400 hover:text-white transition-colors">บทความ</Link>
+            <Link href="/directory" className="text-slate-400 hover:text-white transition-colors">ไดเรกทอรี</Link>
+            <Link href="/login" className="text-cyan-400 hover:text-cyan-300 transition-colors">เข้าสู่ระบบ →</Link>
+          </div>
         </div>
       </footer>
 
