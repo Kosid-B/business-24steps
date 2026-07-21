@@ -124,8 +124,8 @@ export default function MembershipPage() {
         }),
       })
       const json = await res.json()
-      if (!res.ok || json.error) throw new Error(json.error || 'สร้าง Invoice ไม่สำเร็จ')
-      window.location.href = json.invoiceUrl
+      if (!res.ok || json.error) throw new Error(json.error || 'สร้างรายการชำระเงินไม่สำเร็จ')
+      window.location.href = json.checkoutUrl
     } catch (e) {
       setPayState('error')
       setErrorMsg(String(e).replace('Error: ', ''))
@@ -394,7 +394,7 @@ export default function MembershipPage() {
             </div>
 
             <div style={{ background: '#F6F2E9', borderRadius: 14, padding: '14px 16px', marginBottom: 20, fontSize: 13.5, color: '#5C564A', lineHeight: 1.6 }}>
-              <div style={{ fontWeight: 700, color: '#1C1A15', marginBottom: 4 }}>ชำระผ่าน Xendit</div>
+              <div style={{ fontWeight: 700, color: '#1C1A15', marginBottom: 4 }}>ชำระผ่าน Stripe</div>
               รองรับ PromptPay QR · บัตรเครดิต/เดบิต<br />
               กด &ldquo;ไปหน้าชำระเงิน&rdquo; แล้วเลือกวิธีชำระบนหน้าถัดไป
             </div>
@@ -419,7 +419,7 @@ export default function MembershipPage() {
             </button>
 
             <div style={{ marginTop: 14, textAlign: 'center', fontSize: 11.5, color: '#C9BFA8' }}>
-              🔒 ชำระผ่าน Xendit — PCI DSS Compliant
+              🔒 ชำระผ่าน Stripe — PCI DSS Compliant
             </div>
           </div>
         </div>
