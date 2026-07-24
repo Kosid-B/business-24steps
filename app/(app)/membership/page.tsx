@@ -104,7 +104,7 @@ export default function MembershipPage() {
     return billing === 'yearly' ? plan.yearlyPrice : plan.monthlyPrice
   }
 
-  async function payWithXendit(plan: PlanOpt) {
+  async function payWithStripe(plan: PlanOpt) {
     setPayState('loading')
     setErrorMsg('')
     try {
@@ -406,7 +406,7 @@ export default function MembershipPage() {
             )}
 
             <button
-              onClick={() => payWithXendit(modal.plan)}
+              onClick={() => payWithStripe(modal.plan)}
               disabled={payState === 'loading'}
               className="btn"
               style={{
