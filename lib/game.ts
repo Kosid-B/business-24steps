@@ -101,5 +101,6 @@ export function defaultState(): AppState {
     notifs: [],
     listing: null,
     sidebarOpen: true,
+    strategyHistory: [],
   }
 }

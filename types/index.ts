@@ -41,6 +41,13 @@ export interface AppState {
   sidebarOpen?: boolean
   celebrate?: boolean
   toast?: string | null
+  strategyHistory?: StrategyRun[]
+}
+
+export interface StrategyRun {
+  at: string          // ISO timestamp
+  overall: number     // 0–100
+  pillars: { id: string; n: number; pct: number }[]
 }
 
 export interface MatchRequest {

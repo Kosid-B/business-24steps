@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react'
-import type { AppState, StepProgress } from '@/types'
+import type { AppState, StepProgress, StrategyRun } from '@/types'
 import { createClient } from '@/lib/supabase/client'
 import { defaultState } from '@/lib/game'
 
@@ -13,6 +13,7 @@ interface AppContextValue {
   updateVenture: (patch: Partial<AppState['venture']>) => Promise<void>
   updateAccount: (patch: Partial<AppState['account']>) => Promise<void>
   upgradePlan: (plan: AppState['plan']) => Promise<void>
+  saveStrategy: (run: StrategyRun) => Promise<void>
   addNotif: (notif: Omit<AppState['notifs'][0], 'id' | 'read' | 'createdAt'>) => void
   readAllNotifs: () => void
   toast: (msg: string) => void
@@ -104,6 +105,11 @@ export function AppProvider({ children, userId, userEmail, userName }: {
     await persist({ ...state, plan, hours })
   }, [state, persist])
 
+  const saveStrategy = useCallback(async (run: StrategyRun) => {
+    const hist = [run, ...(state.strategyHistory || [])].slice(0, 12)
+    await persist({ ...state, strategyHistory: hist })
+  }, [state, persist])
+
   const addNotif = useCallback((notif: Omit<AppState['notifs'][0], 'id' | 'read' | 'createdAt'>) => {
     const n = { ...notif, id: Date.now().toString(), read: false, createdAt: new Date().toISOString() }
     persist({ ...state, notifs: [n, ...state.notifs] })
@@ -126,7 +132,7 @@ export function AppProvider({ children, userId, userEmail, userName }: {
     <AppContext.Provider value={{
       state, loading,
       markStep, markLesson,
-      updateVenture, updateAccount, upgradePlan,
+      updateVenture, updateAccount, upgradePlan, saveStrategy,
       addNotif, readAllNotifs,
       toast, toastMsg,
       setSidebarOpen,

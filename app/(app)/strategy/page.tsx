@@ -2,8 +2,13 @@
 
 export const runtime = 'edge'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import Link from 'next/link'
+import { useApp } from '@/lib/context/AppContext'
+import { createClient } from '@/lib/supabase/client'
+import type { StrategyRun } from '@/types'
+
+const EDGE_FN = process.env.NEXT_PUBLIC_SUPABASE_URL + '/functions/v1/step-coach'
 
 type Pillar = {
   id: string
@@ -60,9 +65,19 @@ const PILLARS: Pillar[] = [
   },
 ]
 
+const P_LABEL: Record<string, string> = Object.fromEntries(PILLARS.map(p => [p.id, p.title]))
+
 export default function StrategyPage() {
+  const { state, saveStrategy, toast } = useApp()
   const [checks, setChecks] = useState<Record<string, boolean>>({})
   const [show, setShow] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [aiText, setAiText] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
+  const supabase = createClient()
+
+  const history = state.strategyHistory || []
 
   const scores = useMemo(() =>
     PILLARS.map(p => {
@@ -72,6 +87,8 @@ export default function StrategyPage() {
 
   const overall = Math.round(scores.reduce((s, x) => s + x.pct, 0) / PILLARS.length * 100)
   const weakest = [...scores].sort((a, b) => a.pct - b.pct)[0]
+  const prevRun = history[0]
+  const delta = prevRun ? overall - prevRun.overall : null
 
   // radar geometry — 4 axes: top / right / bottom / left
   const cx = 120, cy = 120, R = 92
@@ -81,6 +98,88 @@ export default function StrategyPage() {
   }
   const poly = scores.map((s, i) => axis(i, Math.max(s.pct, 0.02)).join(',')).join(' ')
   const grid = (v: number) => [0, 1, 2, 3].map(i => axis(i, v).join(',')).join(' ')
+
+  function handleShow() {
+    setShow(true)
+    setSaved(false)
+    setAiText('')
+  }
+
+  async function handleSave() {
+    const run: StrategyRun = {
+      at: new Date().toISOString(),
+      overall,
+      pillars: scores.map(s => ({ id: s.pillar.id, n: s.n, pct: s.pct })),
+    }
+    await saveStrategy(run)
+    setSaved(true)
+    toast('บันทึกผลกลยุทธ์แล้ว 📌')
+  }
+
+  async function analyze() {
+    if (aiLoading) return
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
+    setAiLoading(true)
+    setAiText('')
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token ?? ''
+      const lines = scores.map(s => `- เสา ${s.pillar.no} ${s.pillar.title}: ${Math.round(s.pct * 100)}%`).join('\n')
+      const trend = prevRun ? `\nรอบก่อนคะแนนรวม ${prevRun.overall}% (${(delta ?? 0) >= 0 ? '+' : ''}${delta}%)` : ''
+      const question =
+`ฉันประเมินธุรกิจตามกรอบ 4 เสาหลักกลยุทธ์ (ถอดรหัสจากแมลงสังคม) ได้ผลนี้:
+${lines}
+คะแนนรวม ${overall}% · เสาที่อ่อนที่สุดคือ "${weakest.pillar.title}"${trend}
+
+ช่วยวิเคราะห์เชิงลึกให้หน่อย:
+1. ควรลงมือเสาไหนก่อน และเพราะอะไร (อ้างหลักของกรอบ เช่น อย่าเร่งโตถ้าแก่นยังไม่ชัด)
+2. 3 action ที่ทำได้จริงใน 30 วัน สำหรับเสาที่อ่อนที่สุด
+3. ความเสี่ยงถ้าปล่อยเสาที่อ่อนไว้
+เขียนภาษาไทย กระชับ ปฏิบัติได้จริง`
+
+      const res = await fetch(EDGE_FN, {
+        method: 'POST', signal: abortRef.current.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          question,
+          context: {
+            name: state.account?.name,
+            venture: state.venture?.name,
+            plan: state.plan,
+            doneCount: Object.values(state.progress).filter((r: unknown) => (r as { done?: boolean })?.done).length,
+            currentStepN: 0,
+            progress: state.progress,
+          },
+        }),
+      })
+      if (!res.body) throw new Error('no body')
+      const reader = res.body.getReader()
+      const dec = new TextDecoder()
+      let buf = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += dec.decode(value, { stream: true })
+        const parts = buf.split('\n')
+        buf = parts.pop() ?? ''
+        for (const line of parts) {
+          if (!line.startsWith('data: ')) continue
+          const raw = line.slice(6).trim()
+          if (raw === '[DONE]') continue
+          try {
+            const ev = JSON.parse(raw)
+            if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+              setAiText(t => t + ev.delta.text)
+            }
+          } catch { /* skip */ }
+        }
+      }
+    } catch (e: unknown) {
+      if ((e as Error).name !== 'AbortError') setAiText(`เกิดข้อผิดพลาด: ${e}`)
+    } finally {
+      setAiLoading(false)
+    }
+  }
 
   return (
     <div className="anim-fade">
@@ -125,7 +224,7 @@ export default function StrategyPage() {
         })}
       </div>
 
-      <button onClick={() => setShow(true)} className="btn btn-primary" style={{ marginTop: 18, width: '100%' }}>
+      <button onClick={handleShow} className="btn btn-primary" style={{ marginTop: 18, width: '100%' }}>
         ดูผลวินิจฉัย 4 เสา
       </button>
 
@@ -154,8 +253,17 @@ export default function StrategyPage() {
             </svg>
 
             <div>
-              <div style={{ fontSize: 13, color: '#8E8676', fontWeight: 600 }}>คะแนนกลยุทธ์รวม</div>
-              <div className="mono" style={{ fontSize: 40, fontWeight: 700, color: '#16704A', lineHeight: 1.1 }}>{overall}%</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 13, color: '#8E8676', fontWeight: 600 }}>คะแนนกลยุทธ์รวม</div>
+                  <div className="mono" style={{ fontSize: 40, fontWeight: 700, color: '#16704A', lineHeight: 1.1 }}>{overall}%</div>
+                </div>
+                {delta !== null && (
+                  <span className="mono" style={{ fontSize: 14, fontWeight: 700, color: delta >= 0 ? '#16704A' : '#C0573B' }}>
+                    {delta >= 0 ? '▲ +' : '▼ '}{delta}% จากรอบก่อน
+                  </span>
+                )}
+              </div>
               <div style={{ marginTop: 10, background: '#FBEAE3', border: '1px solid #f0c4b4', borderRadius: 12, padding: '12px 14px' }}>
                 <div style={{ fontSize: 12.5, fontWeight: 700, color: '#C0573B', marginBottom: 3 }}>เสาที่อ่อนที่สุด · เสา {weakest.pillar.no} {weakest.pillar.title}</div>
                 <div style={{ fontSize: 13.5, color: '#5C564A', lineHeight: 1.5 }}>{weakest.pillar.weakAdvice}</div>
@@ -178,6 +286,61 @@ export default function StrategyPage() {
               </div>
             ))}
           </div>
+
+          {/* Actions: save + AI */}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 18 }}>
+            <button onClick={handleSave} disabled={saved} className="btn btn-ghost" style={{ opacity: saved ? .6 : 1 }}>
+              {saved ? '✓ บันทึกแล้ว' : '📌 บันทึกผลรอบนี้'}
+            </button>
+            <button onClick={analyze} disabled={aiLoading} className="btn btn-primary" style={{ gap: 8 }}>
+              {aiLoading ? 'AI กำลังวิเคราะห์…' : '🤖 ให้ AI วิเคราะห์เชิงลึก'}
+            </button>
+          </div>
+
+          {/* AI analysis */}
+          {(aiText || aiLoading) && (
+            <div style={{ marginTop: 14, background: '#F6F2E9', border: '1px solid #E5DECC', borderRadius: 14, padding: '16px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ width: 26, height: 26, borderRadius: '50%', background: '#16704A', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>🤖</span>
+                <span style={{ fontWeight: 700, fontSize: 14, color: '#1C1A15' }}>วิเคราะห์โดยโค้ช AI</span>
+              </div>
+              <div style={{ fontSize: 14, color: '#1C1A15', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                {aiText || <span style={{ opacity: .5 }}>กำลังอ่านผล 4 เสา…</span>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* History */}
+      {history.length > 0 && (
+        <div className="card card-pad" style={{ marginTop: 18 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: '#1C1A15', marginBottom: 14 }}>ประวัติการประเมิน & พัฒนาการ</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {history.map((run, i) => {
+              const prev = history[i + 1]
+              const d = prev ? run.overall - prev.overall : null
+              return (
+                <div key={run.at} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 4px', borderTop: i === 0 ? 'none' : '1px solid #F1ECDF' }}>
+                  <div style={{ width: 90, flexShrink: 0 }}>
+                    <div className="mono" style={{ fontSize: 17, fontWeight: 700, color: '#16704A' }}>{run.overall}%</div>
+                    <div style={{ fontSize: 11, color: '#8E8676' }}>{new Date(run.at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}</div>
+                  </div>
+                  <div style={{ flex: 1, display: 'flex', gap: 4 }}>
+                    {run.pillars.map(pl => (
+                      <div key={pl.id} title={`${P_LABEL[pl.id]} · ${Math.round(pl.pct * 100)}%`} style={{ flex: 1, height: 26, borderRadius: 6, background: '#F1ECDF', overflow: 'hidden', display: 'flex', alignItems: 'flex-end' }}>
+                        <div style={{ width: '100%', height: `${Math.round(pl.pct * 100)}%`, background: PILLARS.find(p => p.id === pl.id)?.color || '#16704A' }} />
+                      </div>
+                    ))}
+                  </div>
+                  <span className="mono" style={{ width: 52, textAlign: 'right', flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: d == null ? '#C9BFA8' : d >= 0 ? '#16704A' : '#C0573B' }}>
+                    {d == null ? '—' : `${d >= 0 ? '+' : ''}${d}%`}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+          <div style={{ fontSize: 11.5, color: '#8E8676', marginTop: 12 }}>แท่งสี = 4 เสา (เขียว/ทอง/น้ำเงิน/ม่วง) · เก็บ 12 รอบล่าสุด</div>
         </div>
       )}
     </div>
