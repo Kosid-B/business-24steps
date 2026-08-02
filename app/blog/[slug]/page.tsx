@@ -77,6 +77,28 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
                 ))}
               </ul>
             )}
+            {s.table && (
+              <div style={{ overflowX: 'auto', margin: '6px 0 0', border: '1px solid #E5DECC', borderRadius: 12 }}>
+                <table style={{ width: '100%', minWidth: 520, borderCollapse: 'collapse', fontSize: 14 }}>
+                  <thead>
+                    <tr style={{ background: '#F1ECDF' }}>
+                      {s.table.head.map((th, k) => (
+                        <th key={k} style={{ textAlign: 'left', padding: '11px 14px', fontWeight: 700, color: '#1C1A15', borderBottom: '1px solid #E5DECC' }}>{th}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.table.rows.map((row, r) => (
+                      <tr key={r}>
+                        {row.map((cell, c) => (
+                          <td key={c} style={{ padding: '11px 14px', color: c === 0 ? '#16704A' : '#3B3730', fontWeight: c === 0 ? 600 : 400, lineHeight: 1.6, borderBottom: r < s.table!.rows.length - 1 ? '1px solid #F1ECDF' : 'none', verticalAlign: 'top' }}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
         ))}
 
