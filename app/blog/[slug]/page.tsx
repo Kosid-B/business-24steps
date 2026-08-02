@@ -77,6 +77,16 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
                 ))}
               </ul>
             )}
+            {s.links && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '6px 0 0' }}>
+                {s.links.map((lk, k) => (
+                  <Link key={k} href={lk.href} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: '#F0FAF4', border: '1px solid #cfe3d6', borderRadius: 11, textDecoration: 'none', fontSize: 15, fontWeight: 600, color: '#16704A' }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16704A" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+                    {lk.label}
+                  </Link>
+                ))}
+              </div>
+            )}
             {s.table && (
               <div style={{ overflowX: 'auto', margin: '6px 0 0', border: '1px solid #E5DECC', borderRadius: 12 }}>
                 <table style={{ width: '100%', minWidth: 520, borderCollapse: 'collapse', fontSize: 14 }}>
