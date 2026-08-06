@@ -7,6 +7,7 @@ import { useSearchParams } from 'next/navigation'
 import { useApp } from '@/lib/context/AppContext'
 import { PLANS } from '@/lib/data/content'
 import { createClient } from '@/lib/supabase/client'
+import { track } from '@/lib/track'
 import type { Plan, Billing } from '@/types'
 
 const PLAN_COLORS: Record<string, string> = {
@@ -85,6 +86,7 @@ export default function MembershipPage() {
       if (data) {
         clearInterval(pollRef.current!)
         await upgradePlan(data.plan as Plan)
+        track('pay', { plan: data.plan })
         setPayState('success')
         setModal(null)
       }

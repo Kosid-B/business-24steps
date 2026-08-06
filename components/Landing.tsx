@@ -93,7 +93,7 @@ export default function Landing() {
               เริ่มสร้างธุรกิจกับ AI — ฟรี 7 วัน
             </Link>
             <div className="mt-4 text-slate-500 text-sm">
-              ไม่ต้องใช้บัตรเครดิต · เหลือสิทธิ์ทดลองวันนี้อีก <span className="text-amber-400 font-semibold">8 ที่</span>
+              ไม่ต้องใช้บัตรเครดิต · ทดลองฟรี 7 วัน · <span className="text-amber-400 font-semibold">ยกเลิกได้ทุกเมื่อ</span>
             </div>
           </div>
         </div>
@@ -103,10 +103,10 @@ export default function Landing() {
       <section className="py-16 border-t border-slate-800 bg-slate-900/50">
         <div className="max-w-4xl mx-auto text-center px-6">
           <p className="text-sm uppercase tracking-widest text-cyan-500 mb-8">
-            ผู้ประกอบการไทยกว่า 500 ราย กำลังสร้างธุรกิจด้วยระบบอัจฉริยะ
+            สร้างบนกรอบ Disciplined Entrepreneurship ของ MIT — ปรับให้ SME ไทยเดินได้จริงทีละก้าว
           </p>
           <div className="flex justify-center items-center opacity-50 grayscale hover:grayscale-0 transition-all duration-500">
-            <div className="text-2xl font-bold italic tracking-tighter text-slate-300">TRUSTED BY THAI ENTREPRENEURS</div>
+            <div className="text-2xl font-bold italic tracking-tighter text-slate-300">BY B. TRAINING CONSULTANT</div>
           </div>
         </div>
       </section>

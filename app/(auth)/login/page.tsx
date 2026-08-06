@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { track } from '@/lib/track'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -26,10 +27,12 @@ export default function LoginPage() {
           options: { data: { name, company } },
         })
         if (error) throw error
+        await track('signup', { company: company || null })
         router.push('/dashboard')
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
+        await track('login')
         router.push('/dashboard')
       }
       router.refresh()

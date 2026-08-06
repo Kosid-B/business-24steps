@@ -9,6 +9,7 @@ import { useApp } from '@/lib/context/AppContext'
 import { STEPS, themeOf } from '@/lib/data/steps'
 import { fmtBaht } from '@/lib/game'
 import StepAiPanel from '@/components/StepAiPanel'
+import { track } from '@/lib/track'
 
 const CONFETTI_COLORS = ['#16704A','#A87A1E','#E8623D','#2F4B7C','#EADB9C','#6B3F69','#2C6E6A']
 const CONFETTI_PARTS = Array.from({ length: 22 }, (_, i) => {
@@ -66,12 +67,17 @@ export default function StepPage({ params }: { params: Promise<{ n: string }> })
   const nextStep = STEPS.find(s => s.n === n + 1)
 
   async function handleSave(done: boolean) {
+    const wasFirstDone = done && Object.values(state.progress).filter((r: unknown) => (r as { done?: boolean })?.done).length === 0
     setSaving(true)
     let data: Record<string, string | string[]> = {}
     if (ws.type === 'list') data = { items: listItems.filter(Boolean) }
     else if (ws.type === 'calc') data = calcVals as unknown as Record<string, string>
     else data = formData
     await markStep(n, done, data)
+    if (done) {
+      track('step_done', { step: n })
+      if (wasFirstDone) track('activate', { step: n })
+    }
     setSaving(false)
     toast(done ? `✅ ก้าวที่ ${String(n).padStart(2, '0')} สำเร็จ!` : 'บันทึกแล้ว')
     if (done) {
