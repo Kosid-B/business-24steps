@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { PLANS } from '@/lib/data/content'
+import { trackAnon } from '@/lib/trackAnon'
 
 const AUDIT_QUESTIONS = [
   { id: 'plan', label: 'ยังไม่มีแผนธุรกิจที่ชัดเจน พร้อมยื่นขอทุน/นักลงทุน' },
@@ -36,6 +37,8 @@ const PILLARS = [
 export default function Landing() {
   const [answers, setAnswers] = useState<Record<string, boolean>>({})
   const [showResult, setShowResult] = useState(false)
+
+  useEffect(() => { trackAnon('landing_view') }, [])
 
   const score = useMemo(
     () => AUDIT_QUESTIONS.filter(q => answers[q.id]).length,
@@ -88,6 +91,7 @@ export default function Landing() {
           <div className="flex flex-col items-center">
             <Link
               href="/login"
+              onClick={() => trackAnon('cta_click', { loc: 'hero' })}
               className="group relative px-8 py-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition-all hover:scale-105 shadow-[0_0_20px_rgba(245,158,11,0.4)]"
             >
               เริ่มสร้างธุรกิจกับ AI — ฟรี 7 วัน
@@ -193,7 +197,7 @@ export default function Landing() {
 
             {!showResult ? (
               <button
-                onClick={() => setShowResult(true)}
+                onClick={() => { setShowResult(true); trackAnon('audit_complete', { score, pct }) }}
                 disabled={score === 0}
                 className="mt-7 w-full px-6 py-3.5 rounded-lg font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-cyan-500 hover:bg-cyan-400 text-slate-950"
               >
@@ -205,6 +209,7 @@ export default function Landing() {
                 <p className="text-slate-400 text-sm mb-6 leading-relaxed">{verdict.desc}</p>
                 <Link
                   href="/login"
+                  onClick={() => trackAnon('cta_click', { loc: 'audit', score })}
                   className="inline-block w-full px-6 py-3.5 rounded-lg font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition-all hover:scale-[1.02] shadow-[0_0_20px_rgba(245,158,11,0.35)]"
                 >
                   เริ่มทดลองฟรี 7 วัน — ปลดล็อกพนักงาน AI ทันที
@@ -244,6 +249,7 @@ export default function Landing() {
                 </ul>
                 <Link
                   href="/login"
+                  onClick={() => trackAnon('cta_click', { loc: 'pricing', tier: p.id })}
                   className={`text-center px-5 py-3 rounded-lg font-bold transition-all ${p.highlight ? 'bg-amber-500 hover:bg-amber-400 text-slate-950' : 'border border-slate-700 hover:border-slate-500 text-white'}`}
                 >
                   {p.cta}
