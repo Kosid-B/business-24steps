@@ -5,7 +5,7 @@ export const runtime = 'edge'
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-type Row = { member_id: string | null; anon_id: string | null; event: string }
+type Row = { member_id: string | null; anon_id: string | null; event: string; created_at: string }
 
 const ANON_FUNNEL = [
   { event: 'landing_view', label: 'เข้าชมหน้าแรก' },
@@ -18,10 +18,19 @@ const AUTH_FUNNEL = [
   { event: 'pay', label: 'ชำระเงิน' },
 ]
 const KNOWN = new Set([...ANON_FUNNEL, ...AUTH_FUNNEL].map(x => x.event))
+const RANGES = [
+  { id: '7', label: '7 วัน', days: 7 },
+  { id: '30', label: '30 วัน', days: 30 },
+  { id: '90', label: '90 วัน', days: 90 },
+  { id: 'all', label: 'ทั้งหมด', days: 0 },
+] as const
+
+function dayKey(iso: string) { return iso.slice(0, 10) }
 
 export default function AnalyticsPage() {
   const [status, setStatus] = useState<'loading' | 'denied' | 'ready'>('loading')
   const [rows, setRows] = useState<Row[]>([])
+  const [range, setRange] = useState<string>('30')
   const supabase = createClient()
 
   useEffect(() => {
@@ -31,8 +40,9 @@ export default function AnalyticsPage() {
         if (!admin) { setStatus('denied'); return }
         const { data } = await supabase
           .from('funnel_events')
-          .select('member_id, anon_id, event')
-          .limit(10000)
+          .select('member_id, anon_id, event, created_at')
+          .order('created_at', { ascending: true })
+          .limit(20000)
         setRows((data as Row[]) || [])
         setStatus('ready')
       } catch {
@@ -42,21 +52,64 @@ export default function AnalyticsPage() {
     load()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const cutoff = useMemo(() => {
+    const r = RANGES.find(x => x.id === range)!
+    if (r.days === 0) return null
+    return new Date(Date.now() - r.days * 86400000).toISOString()
+  }, [range])
+
+  const filtered = useMemo(
+    () => cutoff ? rows.filter(r => r.created_at >= cutoff) : rows,
+    [rows, cutoff]
+  )
+
   const agg = useMemo(() => {
-    const uniqAnon = (ev: string) => new Set(rows.filter(r => r.event === ev && r.anon_id).map(r => r.anon_id)).size
-    const uniqMember = (ev: string) => new Set(rows.filter(r => r.event === ev && r.member_id).map(r => r.member_id)).size
-    const anon = ANON_FUNNEL.map(s => ({ ...s, n: uniqAnon(s.event) }))
-    const auth = AUTH_FUNNEL.map(s => ({ ...s, n: uniqMember(s.event) }))
-    const otherEvents = [...new Set(rows.map(r => r.event))].filter(e => !KNOWN.has(e))
-      .map(e => ({ event: e, total: rows.filter(r => r.event === e).length }))
+    const uniqAnon = (ev: string) => new Set(filtered.filter(r => r.event === ev && r.anon_id).map(r => r.anon_id)).size
+    const uniqMember = (ev: string) => new Set(filtered.filter(r => r.event === ev && r.member_id).map(r => r.member_id)).size
     return {
-      anon, auth, otherEvents,
-      totalEvents: rows.length,
-      visitors: new Set(rows.filter(r => r.anon_id).map(r => r.anon_id)).size,
+      anon: ANON_FUNNEL.map(s => ({ ...s, n: uniqAnon(s.event) })),
+      auth: AUTH_FUNNEL.map(s => ({ ...s, n: uniqMember(s.event) })),
+      otherEvents: [...new Set(filtered.map(r => r.event))].filter(e => !KNOWN.has(e))
+        .map(e => ({ event: e, total: filtered.filter(r => r.event === e).length })),
+      totalEvents: filtered.length,
+      visitors: new Set(filtered.filter(r => r.anon_id).map(r => r.anon_id)).size,
       signups: uniqMember('signup'),
       paid: uniqMember('pay'),
     }
-  }, [rows])
+  }, [filtered])
+
+  // daily trend: visitors (distinct anon_id on landing_view) + signups per day
+  const daily = useMemo(() => {
+    const vByDay = new Map<string, Set<string>>()
+    const sByDay = new Map<string, Set<string>>()
+    for (const r of filtered) {
+      const d = dayKey(r.created_at)
+      if (r.event === 'landing_view' && r.anon_id) {
+        if (!vByDay.has(d)) vByDay.set(d, new Set()); vByDay.get(d)!.add(r.anon_id)
+      }
+      if (r.event === 'signup' && r.member_id) {
+        if (!sByDay.has(d)) sByDay.set(d, new Set()); sByDay.get(d)!.add(r.member_id)
+      }
+    }
+    const r = RANGES.find(x => x.id === range)!
+    let days: number = r.days
+    if (days === 0) {
+      const first = filtered[0]?.created_at
+      days = first ? Math.min(120, Math.ceil((Date.now() - new Date(first).getTime()) / 86400000) + 1) : 14
+    }
+    const out: { date: string; label: string; visitors: number; signups: number }[] = []
+    for (let i = days - 1; i >= 0; i--) {
+      const dt = new Date(Date.now() - i * 86400000)
+      const key = dt.toISOString().slice(0, 10)
+      out.push({
+        date: key,
+        label: dt.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }),
+        visitors: vByDay.get(key)?.size ?? 0,
+        signups: sByDay.get(key)?.size ?? 0,
+      })
+    }
+    return out
+  }, [filtered, range])
 
   if (status === 'loading') return <div style={{ padding: 40, color: '#8E8676' }}>กำลังโหลด…</div>
   if (status === 'denied') return (
@@ -66,6 +119,8 @@ export default function AnalyticsPage() {
       <p style={{ fontSize: 14.5, color: '#8E8676', marginTop: 6 }}>หน้านี้เปิดให้เฉพาะบัญชีที่มีสิทธิ์ผู้ดูแล (admin) เท่านั้น</p>
     </div>
   )
+
+  const maxDaily = Math.max(1, ...daily.map(d => Math.max(d.visitors, d.signups)))
 
   function Funnel({ title, stages, colorBase }: { title: string; stages: { label: string; n: number }[]; colorBase: string }) {
     const top = Math.max(stages[0]?.n || 0, 1)
@@ -97,9 +152,25 @@ export default function AnalyticsPage() {
 
   return (
     <div className="anim-fade">
-      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: '#8E8676', marginBottom: 6 }}>ผู้ดูแลระบบ</div>
-      <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, letterSpacing: '-.01em', color: '#1C1A15' }}>Funnel Analytics</h1>
-      <p style={{ margin: '7px 0 0', fontSize: 14.5, color: '#5C564A' }}>ข้อมูล first-party จาก event จริง · conversion rate แต่ละขั้น</p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: '#8E8676', marginBottom: 6 }}>ผู้ดูแลระบบ</div>
+          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, letterSpacing: '-.01em', color: '#1C1A15' }}>Funnel Analytics</h1>
+          <p style={{ margin: '7px 0 0', fontSize: 14.5, color: '#5C564A' }}>ข้อมูล first-party จาก event จริง · conversion rate แต่ละขั้น</p>
+        </div>
+        {/* Time-range filter */}
+        <div style={{ display: 'inline-flex', background: '#F1ECDF', borderRadius: 999, padding: 4, gap: 3, flexShrink: 0 }}>
+          {RANGES.map(r => (
+            <button key={r.id} onClick={() => setRange(r.id)} style={{
+              border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '7px 14px', borderRadius: 999,
+              fontSize: 13, fontWeight: 700,
+              background: range === r.id ? '#FFFDF7' : 'transparent',
+              color: range === r.id ? '#1C1A15' : '#8E8676',
+              boxShadow: range === r.id ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
+            }}>{r.label}</button>
+          ))}
+        </div>
+      </div>
 
       {/* Stat tiles */}
       <div style={{ marginTop: 20, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
@@ -116,12 +187,38 @@ export default function AnalyticsPage() {
         ))}
       </div>
 
+      {/* Daily trend */}
+      <div className="card card-pad" style={{ marginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 700, fontSize: 15, color: '#1C1A15' }}>แนวโน้มรายวัน</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: '#5C564A' }}><span style={{ width: 10, height: 10, borderRadius: 3, background: '#2F4B7C' }} />ผู้เข้าชม</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: '#5C564A' }}><span style={{ width: 10, height: 10, borderRadius: 3, background: '#16704A' }} />สมัคร</span>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: daily.length > 45 ? 1 : 3, height: 120, minWidth: '100%' }}>
+            {daily.map(d => (
+              <div key={d.date} title={`${d.label}: ผู้เข้าชม ${d.visitors} · สมัคร ${d.signups}`}
+                style={{ flex: 1, minWidth: daily.length > 45 ? 3 : 6, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 2, height: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: '100%', width: '100%', justifyContent: 'center' }}>
+                  <div style={{ width: '45%', maxWidth: 10, height: `${Math.round((d.visitors / maxDaily) * 100)}%`, background: '#2F4B7C', borderRadius: '2px 2px 0 0', minHeight: d.visitors ? 2 : 0 }} />
+                  <div style={{ width: '45%', maxWidth: 10, height: `${Math.round((d.signups / maxDaily) * 100)}%`, background: '#16704A', borderRadius: '2px 2px 0 0', minHeight: d.signups ? 2 : 0 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: '#8E8676' }}>
+          <span>{daily[0]?.label}</span>
+          <span>{daily[daily.length - 1]?.label}</span>
+        </div>
+      </div>
+
       {agg.totalEvents === 0 ? (
-        <div className="card card-pad" style={{ marginTop: 18, textAlign: 'center', color: '#8E8676' }}>
-          ยังไม่มี event เข้ามา — เมื่อมีผู้เข้าชม/สมัคร ตัวเลข funnel จะขึ้นที่นี่อัตโนมัติ
+        <div className="card card-pad" style={{ marginTop: 16, textAlign: 'center', color: '#8E8676' }}>
+          ยังไม่มี event ในช่วงนี้ — ลองเลือกช่วง &ldquo;ทั้งหมด&rdquo; หรือรอข้อมูลเข้ามา
         </div>
       ) : (
-        <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+        <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
           <Funnel title="Funnel นิรนาม (ก่อนสมัคร)" stages={agg.anon} colorBase="#2F4B7C" />
           <Funnel title="Funnel สมาชิก (หลังสมัคร)" stages={agg.auth} colorBase="#16704A" />
         </div>
