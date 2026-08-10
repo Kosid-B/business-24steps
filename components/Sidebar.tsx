@@ -16,6 +16,7 @@ const NAV = [
   { href: '/plg', label: 'กลยุทธ์เติบโต', icon: 'M3 17l5-5 4 4 8-9M16 7h5v5' },
   { href: '/strategy', label: 'กลยุทธ์ 4 เสา', icon: 'M12 2v20M2 12h20M4.9 4.9l14.2 14.2M19.1 4.9 4.9 19.1' },
   { href: '/coach', label: 'โค้ชธุรกิจ AI', icon: 'M12 2a9 9 0 0 1 9 9c0 4-2.5 7.5-6 8.8V22l-3-2-3 2v-2.2C5.5 18.5 3 15 3 11a9 9 0 0 1 9-9ZM9 11h.01M12 11h.01M15 11h.01' },
+  { href: '/analytics', label: 'Analytics (ผู้ดูแล)', icon: 'M4 20V10M10 20V4M16 20v-7M20 20H2' },
 ]
 
 export default function Sidebar() {
