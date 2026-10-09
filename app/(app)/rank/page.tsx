@@ -4,6 +4,7 @@ export const runtime = 'edge'
 
 import { useApp } from '@/lib/context/AppContext'
 import { getXp, getRankTier, getProgress, getPowerLevels, RANK_TIERS } from '@/lib/game'
+import { evidenceLevel } from '@/lib/constitution/level'
 
 const BADGES = [
   { id: 'first_step', icon: '🚶', label: 'ก้าวแรก', desc: 'ทำก้าวที่ 01 สำเร็จ', check: (s: any) => !!s.progress?.[1]?.done },
@@ -23,6 +24,7 @@ export default function RankPage() {
   const rank = getRankTier(xp)
   const progress = getProgress(state)
   const powers = getPowerLevels(state)
+  const ev = evidenceLevel(state, xp)
 
   const nextTier = RANK_TIERS.find(t => t.minXp > xp)
   const xpToNext = nextTier ? nextTier.minXp - xp : 0
@@ -68,6 +70,44 @@ export default function RankPage() {
             <div style={{ fontSize: 13, background: 'rgba(255,255,255,.18)', padding: '6px 14px', borderRadius: 999, display: 'inline-block' }}>🏆 ยศสูงสุดแล้ว!</div>
           )}
         </div>
+      </div>
+
+      {/* Evidence Level — แกนที่วัด "ความจริง" คู่กับ XP ที่วัด "ความขยัน"
+          เพิ่มแกนใหม่แทนการแก้ getXp() เพื่อไม่ให้ใครเสียยศที่ได้มาแล้ว
+          ดู docs/founder-constitution.md §8 ข้อห้ามข้อ 4 */}
+      <div className="card card-pad" style={{ marginTop: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: '#1C1A15' }}>ระดับหลักฐาน</div>
+          <div style={{ fontSize: 12.5, color: '#8E8676' }}>XP = ทำไปเท่าไร · ระดับหลักฐาน = พิสูจน์อะไรได้แล้ว</div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14, flexWrap: 'wrap' }}>
+          <div style={{ width: 54, height: 54, borderRadius: 14, background: ev.color, color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1 }}>{ev.lvl}</div>
+            <div style={{ fontSize: 9, opacity: .85 }}>/ 5</div>
+          </div>
+          <div style={{ flex: 1, minWidth: 190 }}>
+            <div style={{ fontWeight: 700, fontSize: 16, color: ev.color }}>{ev.th}</div>
+            <div className="mono" style={{ fontSize: 12.5, color: '#8E8676', marginTop: 2 }}>
+              ความพร้อม {ev.score}/100 · ผ่านประตู {ev.gatesPassed}/{ev.gatesTotal}
+            </div>
+            <div style={{ height: 6, background: '#EFEBE2', borderRadius: 99, overflow: 'hidden', marginTop: 8 }}>
+              <div style={{ height: '100%', width: `${ev.score}%`, background: ev.color, borderRadius: 99, transition: 'width .8s' }} />
+            </div>
+          </div>
+        </div>
+
+        {ev.warning && (
+          <div style={{ marginTop: 14, padding: '11px 13px', background: '#FDF3E7', border: '1px solid #EBD5B3', borderRadius: 10, fontSize: 13.5, lineHeight: 1.65, color: '#7A5618' }}>
+            ⚠️ {ev.warning}
+          </div>
+        )}
+
+        {ev.nextStep && (
+          <div style={{ marginTop: 12, fontSize: 13.5, lineHeight: 1.65, color: '#5C564A' }}>
+            <b>ขั้นถัดไป:</b> {ev.nextStep}
+          </div>
+        )}
       </div>
 
       {/* XP breakdown */}
