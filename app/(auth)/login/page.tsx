@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
@@ -122,6 +123,38 @@ export default function LoginPage() {
             )}
           </p>
         </div>
+
+        {/*
+          ทางเลือกที่สามสำหรับคนที่ยังไม่พร้อมสมัคร
+          `/` อยู่ในกลุ่มที่บังคับ login คนนอกทุกคนจึงมาโผล่ที่หน้านี้ แล้วเดิมเจอแค่
+          "เข้าสู่ระบบ" กับ "สมัคร" ซึ่ง commitment สูงทั้งคู่ — ตรงกับที่วินิจฉัยไว้ว่า
+          ไม่มีขั้นกลางระหว่างอ่านเฉย ๆ กับสมัครเต็มรูปแบบ (docs/marketing-diagnosis.md)
+          ลิงก์นี้คือขั้นกลางนั้น และเป็นทางเดียวที่ /quickcheck ถูกเดินไปถึงจากในแอป
+        */}
+        <Link
+          href="/quickcheck"
+          onClick={(e) => {
+            // พา UTM ติดไปด้วย — next/link เปลี่ยนหน้าแบบ client side
+            // document.referrer จึงไม่ถูกตั้ง ที่มาของคนจะหายทันทีถ้าไม่ต่อ query เอง
+            // (ตรงกับปัญหา 83/85 session ไม่รู้ที่มา ใน docs/marketing-diagnosis.md)
+            // ถ้า JS ไม่ทำงาน href เดิมยังพาไปถึงหน้าปลายทางได้ แค่ไม่รู้ที่มา
+            if (window.location.search) {
+              e.preventDefault()
+              router.push('/quickcheck' + window.location.search)
+            }
+          }}
+          style={{
+            display: 'block', marginTop: 16, padding: '14px 16px', borderRadius: 14,
+            background: '#FFFDF7', border: '1px dashed #C9BFA4', textDecoration: 'none',
+          }}
+        >
+          <div style={{ fontSize: 14.5, fontWeight: 600, color: '#1C1A15', marginBottom: 2 }}>
+            ยังไม่พร้อมสมัคร? เช็กความพร้อมธุรกิจ 6 ข้อ
+          </div>
+          <div style={{ fontSize: 12.5, color: '#8E8676' }}>
+            ใช้เวลาราว 2 นาที · ไม่ต้องสมัคร · รู้คะแนนและสิ่งที่ควรทำก่อนทันที
+          </div>
+        </Link>
 
         <p style={{ textAlign: 'center', fontSize: 12, color: '#A8A097', marginTop: 20 }}>
           © {new Date().getFullYear()} B. Training Consultant Co., Ltd.
