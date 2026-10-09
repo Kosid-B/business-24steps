@@ -1,7 +1,10 @@
 import type { Metadata } from 'next'
+import { SITE_URL } from '@/lib/site'
 import './globals.css'
 
 export const metadata: Metadata = {
+  // ต้องตั้งที่ชั้นนี้ด้วย เพื่อให้ทุกหน้าแปลงลิงก์ relative ใน metadata ได้
+  metadataBase: new URL(SITE_URL),
   title: 'ตั้งต้น — 24 ก้าวสร้างธุรกิจ',
   description: 'แพลตฟอร์ม SaaS พาผู้เริ่มต้นธุรกิจเดินทีละก้าวจนมีลูกค้าจ่ายเงินจริง อิงกรอบ MIT Disciplined Entrepreneurship',
   themeColor: '#16704A',
